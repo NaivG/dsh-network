@@ -1,0 +1,67 @@
+{
+  "name": "dsh-network",
+  "version": "1.0.0",
+  "description": "dsh-native web suite (CLI + host plugin): replaces tool-web's web_search/web_fetch with a loopback Node CLI over undici, adds http_request, server-side cache paging for oversized bodies, PDF/Office/EPUB → Markdown parsing, and a \"网络\" settings section with block renderers for the dsh web frontend.",
+  "private": true,
+  "license": "MIT",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "web-search",
+    "web-fetch",
+    "http-request",
+    "undici",
+    "ssrf-protection",
+    "officeparser"
+  ],
+  "type": "module",
+  "main": "./dsh/index.js",
+  "exports": {
+    ".": "./dsh/index.js",
+    "./client": "./dsh/client.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-network": "./dist/cli.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "cordis.patch.yml",
+    "dsh",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [],
+      "platform": "web",
+      "immediately": true
+    }
+  },
+  "scripts": {
+    "build": "node ./node_modules/vite/bin/vite.js build --config vite.cli.config.ts",
+    "dev": "node ./node_modules/vite/bin/vite.js build --watch --config vite.cli.config.ts",
+    "test": "node ./node_modules/vitest/vitest.mjs run",
+    "test:all": "pnpm run test && pnpm run test:server && pnpm run test:client && pnpm run test:persist && pnpm run test:schema",
+    "test:client": "node tests/client-smoke.mjs",
+    "test:persist": "node tests/persist-smoke.mjs",
+    "test:schema": "node tests/schema-check.mjs",
+    "test:server": "node tests/server-smoke.mjs"
+  },
+  "dependencies": {
+    "officeparser": "^7.8.0",
+    "undici": "^7.29.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.7",
+    "fflate": "^0.8.3",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "3.2.4"
+  }
+}

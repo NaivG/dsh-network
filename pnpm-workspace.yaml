@@ -1,0 +1,5 @@
+# pnpm 11 dependency build-script policy. tesseract.js (pulled in by
+# officeparser for OCR) must never run its build scripts: OCR is
+# intentionally off in this package, and its core download is pure bloat.
+allowBuilds:
+  tesseract.js: false

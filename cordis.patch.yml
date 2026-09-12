@@ -1,0 +1,51 @@
+# dsh-network bundle patch — what dsh applies on top of the base cordis
+# composition when a profile installs this package.
+#
+# Goal of the patch in three moves:
+#
+#   1) Pin the `web` seam's `searchProvider` AND `fetchProvider` at the
+#      host side to the dsh-network providers we ship. This is the same
+#      shape modsearch uses, just one row instead of web_search-only:
+#      `base` shipped with `searchProvider: deepseek-official` /
+#      `fetchProvider: deepseek-official`; a config block replacing the
+#      WHOLE row config does not need `tool-web` to be enabled — we register
+#      our own web_search/web_fetch tools in src/tools/* and disable the
+#      official tool-web entirely below so duplicate tool names never land.
+#
+#   2) Disable dsh-tool-web: `search: false, fetch: false`. Our host plugin
+#      registers brand-new `web_search`, `web_fetch`, `http_request` tools,
+#      so the ones dsh-tool-web would have made available must not also
+#      appear (the tools registry refuses duplicate names).
+#
+#   3) Insert our plugin row. The host's apply() reads `cordis entry config`
+#      from the row's `config:` block (limits, engine order, allowlist, etc.)
+
+- id: web
+  config:
+    searchProvider: dsh-network
+    fetchProvider: dsh-network
+
+- id: tool-web
+  config:
+    search: false
+    fetch: false
+
+- insert:
+    - id: dsh-network
+      name: dsh-network
+      config:
+        enabled: true
+        allowlist: []
+        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:154.0) Gecko/20100101 Firefox/154.0"
+        fetchTimeoutMs: 25000
+        searchTimeoutMs: 15000
+        httpTimeoutMs: 25000
+        maxBodyChars: 3000000
+        maxRedirects: 3
+        searchEngines: ['bing', 'duckduckgo', 'baidu']
+        searchMaxResults: 10
+        webSearchTool: true
+        webFetchTool: true
+        httpRequestTool: true
+        webSitemapTool: true
+        httpMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
