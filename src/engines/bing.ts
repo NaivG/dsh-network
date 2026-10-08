@@ -43,7 +43,7 @@ export class BingSearchEngine implements SearchEngine {
 
   buildUrl(query: string, options?: Readonly<Record<string, string>>): string {
     return composeEngineUrl(this.endpoint, 'q', query, {
-      pc: 'MOZI',
+      pc: 'MOZR',
       form: 'MOZLBR',
       ...(options ?? {}),
     })

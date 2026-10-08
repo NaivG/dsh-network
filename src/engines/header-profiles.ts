@@ -39,6 +39,7 @@ export const BROWSER_BASE: Readonly<Record<string, string>> = {
   'Sec-Fetch-Mode': 'navigate',
   'Sec-Fetch-Site': 'none',
   'Sec-Fetch-User': '?1',
+  'Priority': 'u=0, i',
 } as const
 
 /**
@@ -52,7 +53,7 @@ export const BROWSER_BASE: Readonly<Record<string, string>> = {
 export const FIREFOX_BING: Readonly<Record<string, string>> = {
   ...BROWSER_BASE,
   TE: 'trailers',
-  'User-Agent': EDGE_151_UA,
+  'User-Agent': FIREFOX_154_UA,
 } as const
 
 /**
@@ -80,7 +81,7 @@ export const FIREFOX_BAIDU: Readonly<Record<string, string>> = {
   ...BROWSER_BASE,
   'Accept-Encoding': 'gzip, deflate',
   Host: 'www.baidu.com',
-  'Accept-Language': 'zh-CN,zh;q=0.9,zh-TW;q=0.8,en-US;q=0.8,en;q=0.8,zh-HK;q=0.7',
+  'Accept-Language': 'en-US;q=0.9,en;q=0.9,zh-CN,zh;q=0.8,zh-TW;q=0.8,zh-HK;q=0.7',
 } as const
 
 /**

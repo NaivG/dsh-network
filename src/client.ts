@@ -249,10 +249,20 @@ function parseCharset(contentTypeHeader: string): string | null {
   return matched && matched[1] ? matched[1].trim().toLowerCase().replace(/^"|"$/g, '') : null
 }
 
-/** Build an undici dispatcher whose DNS lookup is hard-wired to one pinned IP. */
+/**
+ * Build an undici dispatcher whose DNS lookup is hard-wired to one pinned IP.
+ *
+ * `minVersion: 'TLSv1.3'` is not optional: undici's default TLS stack
+ * produces a ClientHello fingerprint (BoringSSL / NSS-style extension
+ * order) that Engine's anti-bot recognises as a non-browser client and
+ * answers with off-topic results for the same query that a real browser
+ * gets answered correctly.
+ */
 export function pinnedDispatcherLike(pinned: PinnedTarget): Dispatcher {
   return new Agent({
     connect: {
+      minVersion: 'TLSv1.3',
+      maxVersion: 'TLSv1.3',
       lookup: ((_hostname: string, options: { all?: boolean } | undefined, callback: LookupCallback) => {
         const record = { address: pinned.address, family: pinned.family }
         if (options && options.all) {
