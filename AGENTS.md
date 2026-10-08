@@ -97,17 +97,33 @@ only actor that can flip the toggle.
   itself loopback/private.
 
 ```bash
-pnpm install
+pnpm install          # runs `prepare` → builds dist/cli.cjs automatically
 pnpm build   # vite SSR build → dist/cli.cjs + dist/server-*.cjs
 ```
+
+- **`prepare` is mandatory for git installs.** `dist/` is gitignored and
+  `dsh plugin add github:NaivG/dsh-network` is just `pnpm add` with cwd = the
+  profile, so the only thing that can produce the CLI bundle during that
+  install is this package's `prepare` script (`scripts/prepare.mjs`). Without
+  it pnpm reports success and every later tool call dies with
+  `dsh-network CLI bundle is missing` (`assertCliPresent()` in
+  `dsh/serverClient.js`). pnpm 12 gates git-dep build scripts behind
+  `allowBuilds`, and for a git-hosted dep the key must be **spec-qualified** —
+  `dsh-network: true` is rejected with
+  `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. Use
+  `dsh plugin --profile web add github:NaivG/dsh-network --allow-build=dsh-network`,
+  or put `dsh-network@github:NaivG/dsh-network: true` under `allowBuilds` in
+  `~/.dsh/profiles/web/pnpm-workspace.yaml` (not this repo's — that one only
+  governs local dev installs of vite/esbuild).
 
 ## Code Organization
 
 ```
 dsh-network/
-├── package.json                # main: ./dsh/index.js, bin: ./dist/cli.cjs
+├── package.json                # main: ./dsh/index.js, bin: ./dist/cli.cjs, prepare → scripts/prepare.mjs
 ├── cordis.patch.yml            # topples web seam + tool-web + inserts row
 ├── vite.cli.config.ts          # SSR build for the CLI
+├── scripts/prepare.mjs         # git-install build hook: vite build, skips cleanly when devDeps are absent
 ├── dsh/
 │   ├── index.js                # host plugin (apply ctx, eager server start, register providers/tools/route)
 │   ├── serverClient.js         # host ↔ loopback server client (ensure/invoke/health/dispose)

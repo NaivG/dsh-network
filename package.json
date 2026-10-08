@@ -44,6 +44,7 @@
     }
   },
   "scripts": {
+    "prepare": "node scripts/prepare.mjs",
     "build": "node ./node_modules/vite/bin/vite.js build --config vite.cli.config.ts",
     "dev": "node ./node_modules/vite/bin/vite.js build --watch --config vite.cli.config.ts",
     "test": "node ./node_modules/vitest/vitest.mjs run",
@@ -58,6 +59,7 @@
     "undici": "^7.29.0"
   },
   "devDependencies": {
+    "@deepseek-ai/schemastery": "^3.18.4",
     "@types/node": "^22.19.7",
     "fflate": "^0.8.3",
     "typescript": "^5.9.3",

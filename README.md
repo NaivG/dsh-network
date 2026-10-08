@@ -2,6 +2,8 @@
 
 Let Deepseek Harness access the internet seamlessly.
 
+Works with `dsh: 0.1.0.rc1` or later.
+
 Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI over `undici`, parses PDF / Office / EPUB documents to Markdown via `officeparser`, and contributes `http_request`, a dedicated "网络" settings section, and web block renderers to the dsh web frontend. The host keeps **one** persistent `dsh-network server` child for its lifetime and pages oversized results via a server-side cache instead of truncating across the child-process boundary.
 
 > **Note:** This plugin is not yet published to npm.

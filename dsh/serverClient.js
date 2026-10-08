@@ -138,9 +138,8 @@ export function createNetworkServerClient(options = {}) {
     if (fs.existsSync(cliPath)) return
     throw new Error(
       `dsh-network CLI bundle is missing: ${cliPath} does not exist. ` +
-        'The bundle ships with the package, so this install is incomplete or out of date — ' +
-        'reinstall dsh-network from its git source, or run `pnpm build` inside the plugin ' +
-        'checkout and commit dist/.',
+        'Reinstall dsh-network from its git source, or run `pnpm build` inside the plugin ' +
+        'checkout.',
     )
   }
 
