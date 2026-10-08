@@ -202,6 +202,7 @@ window.__ModuleLoader__.load({
         searchToolRunning: '搜索中…',
         searchToolTruncated: '结果已按上限截断',
         searchToolNoResults: '未找到结果',
+        searchToolFailed: '请求失败',
         // ── sidebar search panel ──
         searchPanel: '网络搜索',
         searchPanelSubtitle: '在侧边栏直接搜索公共网络，走与 web_search 相同的引擎链。',
@@ -328,6 +329,7 @@ window.__ModuleLoader__.load({
         searchToolRunning: 'Searching…',
         searchToolTruncated: 'Results were capped',
         searchToolNoResults: 'No results found',
+        searchToolFailed: 'Request failed',
         // ── sidebar search panel ──
         searchPanel: 'Web Search',
         searchPanelSubtitle: 'Search the public web right from the sidebar, on the same engine chain as web_search.',
@@ -2000,8 +2002,8 @@ window.__ModuleLoader__.load({
         style: {
           display: 'inline-block', padding: '1px 6px', margin: '0 4px 0 0',
           fontSize: '11px', lineHeight: 1.4, borderRadius: '6px',
-          color: tone === 'warn' ? '#a16207' : tone === 'uncertain' ? '#475569' : tone === 'ok' ? '#16a34a' : 'inherit',
-          background: tone === 'warn' ? 'rgba(250, 204, 21, 0.15)' : tone === 'uncertain' ? 'rgba(148, 163, 184, 0.18)' : tone === 'ok' ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
+          color: tone === 'warn' ? '#a16207' : tone === 'uncertain' ? '#475569' : tone === 'ok' ? '#16a34a' : tone === 'error' ? '#dc2626' : 'inherit',
+          background: tone === 'warn' ? 'rgba(250, 204, 21, 0.15)' : tone === 'uncertain' ? 'rgba(148, 163, 184, 0.18)' : tone === 'ok' ? 'rgba(34, 197, 94, 0.15)' : tone === 'error' ? 'rgba(220, 38, 38, 0.12)' : 'transparent',
           border: '1px solid rgba(127,127,127,0.35)',
           fontFamily: 'var(--dsw-alias-mono, monospace)',
         },
@@ -2194,6 +2196,11 @@ window.__ModuleLoader__.load({
       '.dshn-attempts{margin-top:8px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
       '.dshn-attempts summary{cursor:pointer}',
       '.dshn-attempts pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:inherit}',
+      // Failed-call body (tool threw → ToolResultNode without meta): red-tinted
+      // alert block showing the structured error text the model already saw.
+      '.dshn-error{border-left:3px solid var(--dsw-alias-state-error-primary,#dc2626);padding-left:10px;display:flex;flex-direction:column;gap:4px;min-width:0}',
+      '.dshn-error-title{font-size:12px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-state-error-primary,#dc2626)}',
+      '.dshn-error-detail{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));font:var(--dsw-font-xs-13,12px)}',
       // http_request body: the response is typically a raw byte stream (JSON
       // payload, HTML page, text body), so render it in monospace inside a
       // scrollable box — same width rhythm as .dshn-answer so the two cards
@@ -2256,6 +2263,73 @@ window.__ModuleLoader__.load({
     // horizontal + vertical lines, representing a hierarchical catalog.
     var SITEMAP_ICON_PATH = 'M3 3h6v4H3zM15 3h6v4h-6zM9 17h6v4H9zM6 7v4h12V7M12 11v6'
 
+    // ───────── shared toolview helpers ─────────
+    // The ToolResultNode shape (records.d.ts in @deepseek-ai/dsh-client-ui-chat)
+    // carries `kind: 'tool-result'` once a call settles, with `isError: true`
+    // when the body threw and an optional `meta` (only set on success when the
+    // tool defined a presentationMeta). The previous `meta PRESENCE` settled
+    // check therefore left every throwing tool (http_request / web_fetch) stuck
+    // in the running state — meta never lands, so the row kept shimmering
+    // "搜索中…" even though the model already saw a structured error. The
+    // canonical check is the same one dsh itself uses (`"kind" in block`),
+    // and a failed call additionally exposes the error text on `content` /
+    // `error` so we can surface it in the body.
+    function isSettledToolCall(block) {
+      return !!block && typeof block === 'object' && (block.kind === 'tool-result' || block.isError === true)
+    }
+    function isErroredToolCall(block) {
+      return isSettledToolCall(block) && block.isError === true
+    }
+    /** First text segment of an errored block's content, with dsh's `Error: …`
+     *  envelope prefix stripped so the row shows just the actionable message.
+     *  Falls back to the structured `error` envelope (`name: code`). */
+    function errorMessageOf(block) {
+      if (!block || typeof block !== 'object') return ''
+      var content = Array.isArray(block.content) ? block.content : []
+      for (var i = 0; i < content.length; i++) {
+        var c = content[i]
+        if (c && typeof c === 'object' && c.type === 'text' && typeof c.text === 'string') {
+          return c.text.replace(/^Error:\s*/, '')
+        }
+      }
+      if (block.error && typeof block.error === 'object') {
+        var parts = []
+        if (typeof block.error.name === 'string' && block.error.name !== '') parts.push(block.error.name)
+        if (typeof block.error.code === 'string' && block.error.code !== '') parts.push(block.error.code)
+        if (typeof block.error.message === 'string' && block.error.message !== '') {
+          var prefix = parts.length > 0 ? parts.join(': ') + ' — ' : ''
+          return prefix + block.error.message.replace(/^Error:\s*/, '')
+        }
+        if (parts.length > 0) return parts.join(': ')
+      }
+      return ''
+    }
+    /** Parse the call's arguments from whatever shape the block carries.
+     *  dsh writes `block.call.argsRaw` on a settled ToolResultNode and
+     *  `block.argsRaw` directly on a RunningToolCall; tests often pre-parse
+     *  to `call.args`. Each shape falls through to the next so the row keeps
+     *  working on hosts / harnesses that diverge. */
+    function argsOf(block) {
+      if (!block || typeof block !== 'object') return {}
+      var call = block.call
+      if (call && typeof call === 'object') {
+        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
+          try {
+            var parsed = JSON.parse(call.argsRaw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+          } catch (error) { /* partial/streaming argsRaw — fall through */ }
+        }
+        if (call.args && typeof call.args === 'object' && !Array.isArray(call.args)) return call.args
+      }
+      if (typeof block.argsRaw === 'string' && block.argsRaw !== '') {
+        try {
+          var parsed = JSON.parse(block.argsRaw)
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+        } catch (error) { /* partial/streaming argsRaw — fall through */ }
+      }
+      return {}
+    }
+
     function SearchToolview(react, ui, localeRef) {
       var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
       var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
@@ -2278,19 +2352,7 @@ window.__ModuleLoader__.load({
         }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
       }
 
-      /** The call's parsed arguments: `argsRaw` JSON first (the only shape a
-       *  settled dsh block carries), then a literal `args` object. */
-      function argsOf(block) {
-        var call = block && block.call
-        if (!call) return {}
-        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
-          try {
-            var parsed = JSON.parse(call.argsRaw)
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-          } catch (error) { /* partial/streaming argsRaw — fall through */ }
-        }
-        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
-      }
+      /** The call's parsed arguments: see the shared `argsOf` helper above. */
 
       /** The queries of a call, accepting both arg shapes (`queries` array /
        *  this plugin's single `query` string). */
@@ -2366,16 +2428,22 @@ window.__ModuleLoader__.load({
         var uncertainty = Array.isArray(meta.uncertainty) ? meta.uncertainty : []
         var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
         var attempts = Array.isArray(meta.attempts) ? meta.attempts : []
-        // A settled block always persists a meta object — even a failed call
-        // — so meta PRESENCE, not hit count, separates "still running" from
-        // "finished, possibly empty". The old `answer || sources` test left a
-        // finished zero-hit call showing 搜索中… forever.
-        var settled = rawMeta !== null
+        // Settled detection uses dsh's canonical `"kind" in block` check, NOT
+        // meta presence. A throwing tool (e.g. http_request) never lands a
+        // meta — only the ToolResultNode shape with `isError: true` — so the
+        // old `rawMeta !== null` rule left every throwing call stuck in the
+        // running state ("搜索中…") even though the model already saw the
+        // error. The old `meta === 0` test also left a finished zero-hit
+        // successful call showing 搜索中… forever, hence the canonical check.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
 
         // Multi-query calls are exactly the case the native card renders
         // badly, so they start expanded; a plain single-query call keeps the
-        // native collapsed-by-default rhythm.
-        var openState = react.useState(queries.length > 1)
+        // native collapsed-by-default rhythm. A failed call also starts
+        // expanded so the user sees the error without an extra click.
+        var openState = react.useState(queries.length > 1 || errored)
         var open = settled && openState[0]
         var setOpen = openState[1]
         var toggle = function () { setOpen(function (v) { return !v }) }
@@ -2393,12 +2461,15 @@ window.__ModuleLoader__.load({
         var fragments = []
         if (queries.length === 1) fragments.push(queries[0])
         else if (queries.length > 1) fragments.push(queries.length + ' ' + t.searchToolQueries)
-        if (settled) {
+        if (errored) {
+          fragments.push(t.searchToolFailed)
+        } else if (settled) {
           var hits = answerHits || sources.length
           if (hits > 0) fragments.push(hits + ' ' + t.searchToolSources)
         } else fragments.push(t.searchToolRunning)
 
         var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          errored ? Badge(react, 'error', 'error') : null,
           meta.engine ? Badge(react, 'engine: ' + meta.engine, 'meta') : null,
           meta.status ? Badge(react, meta.status, meta.status === 'ok' ? 'ok' : 'warn') : null,
           warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
@@ -2445,23 +2516,29 @@ window.__ModuleLoader__.load({
 
         var body = !settled
           ? null
-          : react.createElement('div', { className: 'dshn-body' },
-            react.createElement('div', { className: 'dshn-card' },
-              answer !== ''
-                ? react.createElement('div', { className: 'dshn-answer' },
-                  MarkdownText
-                    ? react.createElement(MarkdownText, { text: answer })
-                    : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, answer))
-                : (sources.length
-                  ? sourceList(sources)
-                  : react.createElement('div', { className: 'dshn-empty' }, t.searchToolNoResults)),
-              meta.truncated ? react.createElement('div', { className: 'dshn-note' }, t.searchToolTruncated) : null,
-              attempts.length ? react.createElement('details', { className: 'dshn-attempts' },
-                react.createElement('summary', null, attempts.length + ' engine attempt' + (attempts.length === 1 ? '' : 's')),
-                react.createElement('pre', null,
-                  attempts.map(function (a) { return (a.engine || 'engine') + ': ' + (a.error || 'ok') }).join('\n')))
-              : null,
-            ))
+          : errored
+            ? react.createElement('div', { className: 'dshn-body' },
+                react.createElement('div', { className: 'dshn-card' },
+                  react.createElement('div', { className: 'dshn-error', role: 'alert' },
+                    react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+                    react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage))))
+            : react.createElement('div', { className: 'dshn-body' },
+              react.createElement('div', { className: 'dshn-card' },
+                answer !== ''
+                  ? react.createElement('div', { className: 'dshn-answer' },
+                    MarkdownText
+                      ? react.createElement(MarkdownText, { text: answer })
+                      : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, answer))
+                  : (sources.length
+                    ? sourceList(sources)
+                    : react.createElement('div', { className: 'dshn-empty' }, t.searchToolNoResults)),
+                meta.truncated ? react.createElement('div', { className: 'dshn-note' }, t.searchToolTruncated) : null,
+                attempts.length ? react.createElement('details', { className: 'dshn-attempts' },
+                  react.createElement('summary', null, attempts.length + ' engine attempt' + (attempts.length === 1 ? '' : 's')),
+                  react.createElement('pre', null,
+                    attempts.map(function (a) { return (a.engine || 'engine') + ': ' + (a.error || 'ok') }).join('\n')))
+                : null,
+              ))
 
         return react.createElement('div', { className: 'dshn-toolview' },
           react.createElement('button', rowProps, leading, textWrap),
@@ -2519,18 +2596,6 @@ window.__ModuleLoader__.load({
         }))
       }
 
-      function argsOf(block) {
-        var call = block && block.call
-        if (!call) return {}
-        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
-          try {
-            var parsed = JSON.parse(call.argsRaw)
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-          } catch (error) { /* partial/streaming argsRaw — fall through */ }
-        }
-        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
-      }
-
       function safeHref(url) {
         if (typeof url !== 'string' || url === '') return null
         try {
@@ -2582,26 +2647,34 @@ window.__ModuleLoader__.load({
         var cacheSlice = meta.cacheSlice && typeof meta.cacheSlice === 'object' ? meta.cacheSlice : null
         var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
 
-        // A settled block always persists a meta object — even a failed call
-        // — so meta PRESENCE, not body length, separates "still running" from
-        // "finished, possibly empty".
-        var settled = rawMeta !== null
+        // Settled detection uses dsh's canonical `"kind" in block` check, not
+        // meta presence. The host's http_request execute() throws on CLI
+        // failure, and dsh's tool registry then builds a ToolResultNode with
+        // `isError: true` and NO `meta` — the old `rawMeta !== null` rule
+        // therefore left every failing POST stuck in the running state
+        // ("搜索中…") even though the model already saw a structured error.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
 
         // The row reads like a first-party dsh tool card. Single fetch →
         // collapsed; the user clicks the row to inspect the body. A body
-        // preview with a `…` ending is opened by default so the user sees
-        // the truncation hint without expanding.
-        var openState = react.useState(isPreview)
+        // preview with a `…` ending, or a failed call, is opened by default
+        // so the user sees the truncation / error hint without expanding.
+        var openState = react.useState(isPreview || errored)
         var open = settled && openState[0]
         var setOpen = openState[1]
         var toggle = function () { setOpen(function (v) { return !v }) }
 
-        // Header rhythm: METHOD · URL · status · content-type · warnings.
-        // Each fragment is a dot-separated label, exactly like SearchToolview.
+        // Header rhythm: METHOD · URL · status · content-type · warnings
+        // (success) / METHOD · URL · 请求失败 (failure). Each fragment is a
+        // dot-separated label, exactly like SearchToolview.
         var headerFragments = []
         var headerLabel = method + ' ' + finalUrl
         headerFragments.push(headerLabel)
-        if (settled) {
+        if (errored) {
+          headerFragments.push(t.searchToolFailed)
+        } else if (settled) {
           if (statusCode !== null) {
             var statusLabel = statusCode + (statusText !== '' ? ' ' + statusText : '')
             headerFragments.push(statusLabel)
@@ -2613,9 +2686,10 @@ window.__ModuleLoader__.load({
         }
 
         var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
-          settled && statusCode !== null ? Badge(react, statusCode + (statusText !== '' ? ' ' + statusText : ''), statusTone(statusCode)) : null,
-          settled && contentType !== '' ? Badge(react, contentType, 'meta') : null,
-          settled && cacheId !== '' ? Badge(react, 'cache:' + cacheId.slice(0, 8), 'warn') : null,
+          errored ? Badge(react, 'error', 'error') : null,
+          settled && !errored && statusCode !== null ? Badge(react, statusCode + (statusText !== '' ? ' ' + statusText : ''), statusTone(statusCode)) : null,
+          settled && !errored && contentType !== '' ? Badge(react, contentType, 'meta') : null,
+          settled && !errored && cacheId !== '' ? Badge(react, 'cache:' + cacheId.slice(0, 8), 'warn') : null,
           warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
         )
 
@@ -2651,17 +2725,26 @@ window.__ModuleLoader__.load({
         if (!settled) rowProps['data-static'] = 'true'
 
         var bodyChildren = []
-        if (cacheId !== '' && contentLength !== null && contentLength > body.length) {
+        if (errored) {
+          // A throwing call never lands a meta, so there is no body/status to
+          // show — render the structured error text the model already saw so
+          // the user can audit the same failure without opening the trajectory.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-error', role: 'alert', key: 'error' },
+            react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+            errorMessage !== '' ? react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage) : null,
+          ))
+        }
+        if (!errored && cacheId !== '' && contentLength !== null && contentLength > body.length) {
           bodyChildren.push(react.createElement('div', { className: 'dshn-note', key: 'paged' },
             '预览 — 共 ' + contentLength.toLocaleString() + ' 字符（显示了 ' + body.length.toLocaleString() +
               '）。以 cacheId="' + cacheId + '" 配合 offset=' + body.length + ', limit=20000 继续分页。'))
         }
-        if (body !== '') {
+        if (!errored && body !== '') {
           bodyChildren.push(react.createElement('pre', { className: 'dshn-body-pre', key: 'body' }, body))
-        } else if (settled) {
+        } else if (!errored && settled) {
           bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, '响应体为空'))
         }
-        if (headers.length > 0) {
+        if (!errored && headers.length > 0) {
           bodyChildren.push(react.createElement('div', { className: 'dshn-headers', key: 'headers' },
             react.createElement('div', { className: 'dshn-headers-title' }, '响应头 (' + headers.length + ')'),
             headers.map(function (h, i) {
@@ -2738,18 +2821,6 @@ window.__ModuleLoader__.load({
         )
       }
 
-      function argsOf(block) {
-        var call = block && block.call
-        if (!call) return {}
-        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
-          try {
-            var parsed = JSON.parse(call.argsRaw)
-            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-          } catch (error) { /* partial/streaming argsRaw — fall through */ }
-        }
-        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
-      }
-
       function safeHref(url) {
         if (typeof url !== 'string' || url === '') return null
         try {
@@ -2785,14 +2856,19 @@ window.__ModuleLoader__.load({
         var digest = typeof meta.digest === 'string' ? meta.digest : ''
         var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
         var uncertainty = Array.isArray(meta.uncertainty) ? meta.uncertainty : []
-        var settled = rawMeta !== null
+        // Canonical `"kind" in block` settled check (see the shared helpers
+        // above) — meta presence alone misses throwing calls, which carry
+        // `isError: true` and no `meta` on the settled ToolResultNode.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
         var count = typeof meta.count === 'number' ? meta.count : entries.length
         var resolvedCount = typeof meta.resolvedCount === 'number' ? meta.resolvedCount : resolved.length
 
         // Open by default once we have entries — unlike a search result the
         // user usually wants to scan the matched portals, not the running
-        // indicator.
-        var openState = react.useState(entries.length > 0 || resolved.length > 0)
+        // indicator. A failed call also opens so the error is visible.
+        var openState = react.useState(entries.length > 0 || resolved.length > 0 || errored)
         var open = settled && openState[0]
         var setOpen = openState[1]
         var toggle = function () { setOpen(function (v) { return !v }) }
@@ -2800,7 +2876,9 @@ window.__ModuleLoader__.load({
         var headerFragments = []
         var title = inputLabel(args)
         headerFragments.push(title)
-        if (settled) {
+        if (errored) {
+          headerFragments.push(t.searchToolFailed)
+        } else if (settled) {
           if (count > 0) headerFragments.push(count + ' 个门户')
           if (resolvedCount > 0) headerFragments.push(resolvedCount + ' 个解析 URL')
           if (typeof meta.status === 'string' && meta.status === 'unavailable') headerFragments.push('无可用')
@@ -2809,7 +2887,8 @@ window.__ModuleLoader__.load({
         }
 
         var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
-          settled && typeof meta.status === 'string' && meta.status !== 'ok'
+          errored ? Badge(react, 'error', 'error') : null,
+          settled && !errored && typeof meta.status === 'string' && meta.status !== 'ok'
             ? Badge(react, meta.status, 'warn')
             : null,
           warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
@@ -2848,7 +2927,15 @@ window.__ModuleLoader__.load({
         if (!settled) rowProps['data-static'] = 'true'
 
         var bodyChildren = []
-        if (summary !== '') {
+        if (errored) {
+          // A throwing call carries no meta; surface the structured error text
+          // the model already saw so the user can audit the same failure.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-error', role: 'alert', key: 'error' },
+            react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+            errorMessage !== '' ? react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage) : null,
+          ))
+        }
+        if (!errored && summary !== '') {
           bodyChildren.push(react.createElement('div', { className: 'dshn-answer', key: 'summary' },
             MarkdownText
               ? react.createElement(MarkdownText, { text: summary })
@@ -2934,7 +3021,7 @@ window.__ModuleLoader__.load({
           bodyChildren.push(react.createElement('ul', { key: 'warns', style: { paddingLeft: '18px', margin: '6px 0 0', fontSize: '12px', color: '#a16207' } },
             warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })))
         }
-        if (entries.length === 0 && resolved.length === 0 && summary === '' && settled) {
+        if (!errored && entries.length === 0 && resolved.length === 0 && summary === '' && settled) {
           bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, t.searchToolNoResults))
         }
 
