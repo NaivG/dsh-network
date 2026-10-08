@@ -10,7 +10,11 @@ Let Deepseek Harness access the internet seamlessly.
 
 </div>
 
-Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI over `undici`, parses PDF / Office / EPUB documents to Markdown via `officeparser`, and contributes `http_request`, a dedicated "网络" settings section, a sidebar web-search panel (search-engine-style UI over the same engine chain, backed by `/dsh-network/search`), and web block renderers to the dsh web frontend. The host keeps **one** persistent `dsh-network server` child for its lifetime and pages oversized results via a server-side cache instead of truncating across the child-process boundary.
+`dsh-network` replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI that talks to the web through `undici`. It parses PDF and Office documents to Markdown via `officeparser`, and adds `http_request`, a "网络" settings section, a sidebar web-search panel, and web block renderers to the dsh web frontend.
+
+The host keeps one persistent `dsh-network server` child process for its lifetime. Large results page through a server-side cache, so the model can read past the inline cap without re-issuing the request.
+
+All UI elements are designed to match the official style, so they blend seamlessly into the app.
 
 Works with `dsh: 0.1.0.rc1` or later.
 
@@ -18,16 +22,18 @@ Works with `dsh: 0.1.0.rc1` or later.
 
 ## What it does
 
-- `web_search` — search the public web. Returns citeable sources with title/snippet/date, a summary, status (`ok`/`degraded`/`unavailable`), and uncertainty/warnings arrays.
-- `web_fetch` — fetch one HTTP(S) URL and return Markdown (default) or raw body, plus outgoing links and warnings. Recognises PDF, OOXML (`docx`/`pptx`/`xlsx`), ODF (`odt`/`odp`/`ods`), and EPUB responses and routes them through `officeparser` so the model gets clean Markdown instead of binary garbage. Bodies larger than ~20 KB are cached server-side and returned as a preview + `cacheId`; the model pages through the rest with `cacheId` + `offset` / `limit` (instead of `url`) without re-downloading.
-- `http_request` — low-level HTTP(S) request with full method/header/body control. Same `cacheId` paging path as `web_fetch`.
-- `web_config` — read the live dsh-network configuration, or apply a partial patch when the user has flipped the `allowConfigEdit` ("允许修改设置") safety toggle in **设置 → 网络 → 安全**. `get` always works; `set` returns a soft error and tells the user how to enable it while the toggle is off. The toggle itself is intentionally hidden from the model — it's not part of `get`'s response nor of the `set` patch schema — so a botched batched patch can never lock the model out of its own write path. Only the user, from the browser, can flip the toggle. Secrets (`githubToken`, per-engine API keys) are also filtered out of both the read and write paths.
+- `web_search` searches the public web. It returns citeable sources with title, snippet, and date, plus a summary, a status flag (`ok`, `degraded`, or `unavailable`), and arrays of uncertainty notes and warnings.
+- `web_fetch` fetches one HTTP(S) URL and returns Markdown by default or the raw body on request, with outgoing links and warnings. It recognises PDF, OOXML (`docx`/`pptx`/`xlsx`), ODF (`odt`/`odp`/`ods`), and EPUB responses and routes them through `officeparser`, so the model sees clean Markdown instead of binary bytes. Bodies larger than about 20 KB are cached server-side and returned as a preview plus a `cacheId`. The model pages through the rest by calling the tool again with `cacheId`, `offset`, and `limit`.
+- `http_request` issues a low-level HTTP(S) request with full method, header, and body control. It uses the same `cacheId` paging path as `web_fetch`.
+- `web_config` reads the live dsh-network configuration, or applies a partial patch when the user has enabled the `allowConfigEdit` ("允许修改设置") safety toggle in **设置 → 网络 → 安全**. `get` always works. While the toggle is off, `set` returns a soft error that tells the user how to enable it. The toggle itself is hidden from the model — it does not appear in the `get` response or in the `set` patch schema — so a malformed patch cannot lock the model out of its own write path. Only the browser user can flip the toggle. Secrets like `githubToken` and per-engine API keys are also stripped from both the read and write paths.
 
 Search engines, timeouts, SSRF protection, and other knobs are configurable from **设置 → 网络** in the dsh web UI.
 
 ### Sidebar web search (侧边栏网络搜索)
 
-The dsh web UI gains a **网络搜索** entry in the sidebar (after Plugins and Schedules). It opens a search-engine-style panel: one query box plus an engine picker that mirrors the live engine chain (or pin one engine) and a result-count selector. Results render as cards — title link opening in a new tab, host, snippet, published date — under the engines' summary answer, with warnings/uncertainty notes and per-engine attempt details. Recent queries stay one click away, and the last result set survives switching panels. The backend is the `GET|POST /dsh-network/search` route on the host webServer, fenced like `/dsh-network/config` and gated by the same `webSearchTool` toggle as the `web_search` tool.
+The dsh web UI gains a **网络搜索** entry in the sidebar, after Plugins and Schedules. It opens a search-engine-style panel with a query box, an engine picker that mirrors the live engine chain or pins one engine, and a result-count selector. Results render as cards under the engines' summary answer: title link (opens in a new tab), host, snippet, published date. Warnings, uncertainty notes, and per-engine attempt details sit alongside the cards. Recent queries stay one click away, and the last result set survives switching panels.
+
+The backend is the `GET`/`POST /dsh-network/search` route on the host webServer, fenced like `/dsh-network/config` and gated by the same `webSearchTool` toggle as the `web_search` tool.
 
 ## Architecture
 
@@ -41,9 +47,9 @@ The dsh web UI gains a **网络搜索** entry in the sidebar (after Plugins and 
 └──────────────────┘                       └────────────────────────┘
 ```
 
-- The host spawns **one** persistent `node dist/cli.cjs server` child during `apply()` and binds its lifetime to the cordis fiber via `ctx.effect(() => () => client.dispose())`. `ensure()` fails are logged but not fatal; the next `invoke()` respawns on unexpected exit.
-- The server announces its port on stdout as `{"type":"ready","port":N}`; the client parses that line, then talks to the server over `127.0.0.1:<port>` HTTP. Per-call env snapshots (`configToEnv(config)`) carry the live UI settings, so engine order / timeouts / allowlist / GitHub token / SearXNG endpoint change on the next tool call without restarting the server.
-- Parent-death detection on the server side (`stdinWatch` → `process.stdin.on('end'|'error', shutdown)`) catches the case where dsh crashes outright. `client.dispose()` POSTs `/shutdown` (best effort) then SIGTERM → SIGKILL after 1 s.
+- The host spawns one persistent `node dist/cli.cjs server` child during `apply()` and binds its lifetime to the cordis fiber with `ctx.effect(() => () => client.dispose())`. `ensure()` failures are logged, not fatal; the next `invoke()` respawns on unexpected exit.
+- The server announces its port on stdout as `{"type":"ready","port":N}`. The client parses that line and talks to the server over `127.0.0.1:<port>` HTTP. A per-call env snapshot from `configToEnv(config)` carries the live UI settings, so engine order, timeouts, allowlist, GitHub token, and SearXNG endpoint change on the next tool call. The server never restarts for them.
+- Parent-death detection on the server side (`stdinWatch` watching `process.stdin.on('end'|'error', shutdown)`) handles the case where dsh itself crashes. `client.dispose()` POSTs `/shutdown` (best effort), then SIGTERM, then SIGKILL after 1 s.
 
 ## Install
 
@@ -59,11 +65,7 @@ pnpm build
 dsh web
 ```
 
-When the loader sees this package, `cordis.patch.yml` is applied automatically:
-
-- sets the `web` seam providers to `dsh-network`
-- disables the legacy `tool-web` `web_search`/`web_fetch`
-- inserts the `dsh-network` cordis row that loads `dsh/index.js`
+When the loader sees this package, it applies `cordis.patch.yml` automatically: the `web` seam providers switch to `dsh-network`, the legacy `tool-web` `web_search`/`web_fetch` get disabled, and the `dsh-network` cordis row that loads `dsh/index.js` is inserted.
 
 ## CLI
 
@@ -76,14 +78,14 @@ dsh-network doctor                                Readiness report (no network)
 dsh-network server      [--port <n>]        Persistent loopback HTTP server (host uses this)
 ```
 
-The single-shot CLI is a `stdin → stdout` Node child for manual runs, tests, and CI; the host only ever spawns the `server` subcommand.
+The single-shot CLI is a stdin-to-stdout Node child for manual runs, tests, and CI. The host only ever spawns the `server` subcommand.
 
 ### Shared options
 
 | Flag | Meaning | Default |
 |---|---|---|
 | `-t`, `--timeout <ms>` | Per-call timeout | 25 000 (search 15 000) |
-| `--allow-private-network` | Allow loopback / private / reserved targets | off |
+| `--allow-private-network` | Allow loopback, private, and reserved targets | off |
 | `--no-redirect-protection` | Allow redirects to cross domains | off |
 | `--no-protocol-lock` | Allow redirects to switch between http and https | off |
 | `--headers <json>` | Request headers as JSON object | empty |
@@ -104,7 +106,7 @@ The single-shot CLI is a `stdin → stdout` Node child for manual runs, tests, a
 
 ## Cache paging
 
-The server keeps an LRU cache of results (default cap: 48 entries / 16 MB total chars, 5-minute TTL). When a fetch / http body exceeds the inline cap (~20 KB by default) the server returns:
+The server keeps an LRU cache of results (default cap: 48 entries / 16 MB total chars, 5-minute TTL). When a fetch or http body exceeds the inline cap (about 20 KB by default), the server returns:
 
 ```jsonc
 {
@@ -116,13 +118,13 @@ The server keeps an LRU cache of results (default cap: 48 entries / 16 MB total 
 }
 ```
 
-…and the host tools (`web_fetch` / `http_request`) pass those fields through to the model. To page further, the model re-invokes the same tool with `cacheId` + optional `offset` / `limit` (instead of `url`); `url` and `cacheId` are mutually exclusive.
+The host tools (`web_fetch` and `http_request`) pass those fields through to the model. To page further, the model re-invokes the same tool with `cacheId` plus optional `offset` and `limit`. The `url` and `cacheId` parameters are mutually exclusive.
 
-`web_search` and `web_sitemap` don't page — their result lists are bounded by `--max-results` (default 10, hard cap 20).
+`web_search` and `web_sitemap` do not page. Their result lists are bounded by `--max-results` (default 10, hard cap 20).
 
 ## Settings
 
-The static seed is in `cordis.patch.yml`:
+The static seed lives in `cordis.patch.yml`:
 
 ```yaml
 - insert:
@@ -146,11 +148,11 @@ The static seed is in `cordis.patch.yml`:
         httpMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']
 ```
 
-Fields not listed here are defaulted by the host plugin and stay editable from **设置 → 网络**: the three protections (`ssrfProtection`, `redirectProtection`, `protocolLock`) default to **on**, `githubToken` starts empty, `githubIndexes` empty, `githubSort: "best"`, and per-engine API keys (`searchEngineApiKeys`) start empty.
+Fields not listed here default from the host plugin and stay editable from **设置 → 网络**. The three protections (`ssrfProtection`, `redirectProtection`, `protocolLock`) default to on. `githubToken` and `searchEngineApiKeys` start empty. `githubIndexes` is empty. `githubSort` defaults to `"best"`.
 
-Live edits are made from **设置 → 网络**. The section reads `GET /dsh-network/config` and writes `PUT /dsh-network/config`; the host mutates the live config object, so policy fields take effect on the next tool call (the next `/invoke` body picks them up via `configToEnv`). The tool toggle switches (`webSearchTool`, `webFetchTool`, `httpRequestTool`, `webSitemapTool`) are applied live too: the matching tool's next call fails fast and the sidebar search route answers 403 while `webSearchTool` is off — restarting dsh fully unregisters disabled tools. `enabled` stays row-config-only.
+Live edits come from **设置 → 网络**. The section reads `GET /dsh-network/config` and writes `PUT /dsh-network/config`. The host mutates the live config object, so policy fields take effect on the next tool call: the next `/invoke` body picks them up via `configToEnv`. The tool toggle switches (`webSearchTool`, `webFetchTool`, `httpRequestTool`, `webSitemapTool`) also work live. Flipping one off causes the matching tool's next call to fail fast, and the sidebar search route answers 403 while `webSearchTool` is off. Restarting dsh fully unregisters disabled tools. `enabled` stays row-config-only.
 
-UI edits are persisted to `~/.dsh/dsh-network.json` (atomic write; `DSH_NETWORK_CONFIG_FILE` overrides the path). The persisted snapshot wins over the cordis row config. Delete the file to reset. `enabled` is never persisted; the cordis row remains the kill-switch.
+UI edits persist to `~/.dsh/dsh-network.json` (atomic write; `DSH_NETWORK_CONFIG_FILE` overrides the path). The persisted snapshot wins over the cordis row config. Delete the file to reset. `enabled` is never persisted; the cordis row remains the kill switch.
 
 ### SearXNG (self-hosted, opt-in)
 
@@ -158,11 +160,11 @@ Add `searxng` to `searchEngines` and set its endpoint in the UI or via `DSH_NETW
 
 ## Safety
 
-- No `curl.exe` or `nslookup.exe`; all traffic goes through `undici`.
+- All traffic goes through `undici`. The plugin never calls `curl.exe` or `nslookup.exe`.
 - Per-redirect SSRF validation, IP pinning, and private/reserved range blocking are on by default.
-- True binary content (image / audio / video / font / archive / generic octet-stream) is refused at the body level. A fixed allowlist of document MIME types — `application/pdf`, OOXML (`docx` / `pptx` / `xlsx`), ODF (`odt` / `odp` / `ods`), and `application/epub+zip` — is parsed through `officeparser` and returned as Markdown.
-- `githubToken` and engine API keys are stored in `~/.dsh/dsh-network.json`; the browser only sees `hasApiKey`.
-- The loopback server binds to `127.0.0.1` only — no external listener is ever exposed. `/invoke` body is capped at 4 MB.
+- The transport refuses true binary content (image, audio, video, font, archive, generic octet-stream). A fixed allowlist of document MIME types (`application/pdf`, OOXML `docx`/`pptx`/`xlsx`, ODF `odt`/`odp`/`ods`, and `application/epub+zip`) gets parsed through `officeparser` and returned as Markdown.
+- `githubToken` and engine API keys live in `~/.dsh/dsh-network.json`. The browser only sees `hasApiKey`.
+- The loopback server binds to `127.0.0.1` only. There is no external listener. The `/invoke` body is capped at 4 MB.
 
 ## Development
 
@@ -181,10 +183,10 @@ pnpm dev                 # vite SSR watch
 `tests/server-smoke.mjs` spawns the built `dist/cli.cjs server`, points it at a local 25 000-char echo server, and asserts:
 
 1. `/invoke` on `fetch` returns a degraded preview with `contentLen` = 20 000 and a `cacheId`.
-2. paging with `--cache-id --offset 1000 --limit 500` returns the exact echo slice `[1000, 1500)`.
-3. `/health` reports the cache size + total chars + hits.
+2. Paging with `--cache-id --offset 1000 --limit 500` returns the exact echo slice `[1000, 1500)`.
+3. `/health` reports the cache size, total chars, and hits.
 4. `/shutdown` exits the server cleanly with code 0.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
