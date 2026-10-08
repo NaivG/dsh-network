@@ -107,7 +107,10 @@ describe('presentationMeta shapes (must survive JSON round-trip)', () => {
       url: 'https://example.com',
       method: 'GET',
       statusCode: 200,
+      statusText: 'OK',
       contentType: 'text/html',
+      bodyPreview: '',
+      headers: [],
       truncated: false,
       cacheId: undefined,
       contentLength: undefined,
@@ -120,7 +123,10 @@ describe('presentationMeta shapes (must survive JSON round-trip)', () => {
       url: 'https://example.com',
       method: 'POST',
       statusCode: 200,
+      statusText: 'OK',
       contentType: 'application/json',
+      bodyPreview: '{"ok":true}',
+      headers: [{ name: 'content-type', value: 'application/json' }],
       truncated: false,
       cacheId: 'def456',
       contentLength: 4096,
@@ -149,8 +155,37 @@ describe('presentationMeta shapes (must survive JSON round-trip)', () => {
   it('web_sitemap — execute guarantees array fields', () => {
     assertLossless({
       engine: 'web_sitemap',
+      status: 'ok',
       count: 0,
+      entries: [],
+      resolved: [],
       resolvedCount: 0,
+      summary: '',
+      digest: '',
+      uncertainty: [],
+      warnings: [],
+    })
+  })
+
+  it('web_sitemap — entries + resolved populated', () => {
+    assertLossless({
+      engine: 'web_sitemap',
+      status: 'ok',
+      count: 1,
+      entries: [{
+        domain: 'github.com',
+        description: 'Git 托管',
+        category: 'code-repos',
+        priority: 10,
+        hasSearchUrl: true,
+        language: 'multi',
+        region: '',
+        tags: ['git', 'github'],
+      }],
+      resolved: [{ domain: 'github.com', query: 'react', url: 'https://github.com/search?q=react' }],
+      resolvedCount: 1,
+      summary: 'GitHub 命中',
+      digest: '',
       uncertainty: [],
       warnings: [],
     })

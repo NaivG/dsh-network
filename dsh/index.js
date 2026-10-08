@@ -989,7 +989,22 @@ function registerHttpRequestTool(ctx, config) {
         url: value.finalUrl,
         method: value.method,
         statusCode: value.statusCode,
+        statusText: value.statusText,
         contentType: value.contentType,
+        // The card-side toolview (dsh/client.js HttpRequestToolview) shows
+        // the body inline. The full body can be ~20 KB after the server-side
+        // degrade; cap here at the same inline cap so the JSON envelope
+        // never balloons the persisted `meta`. Lossless JSON still holds
+        // because every key is `string` or `number` and `compactPresentation`
+        // drops the absent fields entirely.
+        bodyPreview: typeof value.body === 'string'
+          ? (value.body.length > RENDER_CONTENT_CAP
+                  ? value.body.slice(0, RENDER_CONTENT_CAP) + '…'
+                  : value.body)
+          : '',
+        headers: Array.isArray(value.headers)
+          ? value.headers.slice(0, 40)
+          : [],
         truncated: typeof value.body === 'string' && value.body.length === 0,
         cacheId: value.cacheId,
         contentLength: value.contentLength,
@@ -1354,8 +1369,29 @@ function registerWebSitemapTool(ctx, config) {
       render: (_args, value) => [{ type: 'text', text: renderSitemapEvidence(value) }],
       presentationMeta: (_args, value) => ({
         engine: value.engine,
+        status: value.status,
         count: Array.isArray(value.entries) ? value.entries.length : 0,
+        // The card-side toolview (dsh/client.js WebSitemapToolview) lists
+        // every matched portal as a row, plus any pre-filled search URL the
+        // CLI resolved. The full entries / resolved objects ride along in
+        // the meta envelope so the row can render without re-running the
+        // tool call.
+        entries: Array.isArray(value.entries)
+          ? value.entries.slice(0, 20).map((entry) => ({
+              domain: entry.domain,
+              description: entry.description,
+              category: entry.category,
+              priority: entry.priority,
+              hasSearchUrl: entry.hasSearchUrl === true,
+              language: typeof entry.language === 'string' ? entry.language : '',
+              region: typeof entry.region === 'string' ? entry.region : '',
+              tags: Array.isArray(entry.tags) ? entry.tags.slice(0, 12) : [],
+            }))
+          : [],
+        resolved: Array.isArray(value.resolved) ? value.resolved.slice(0, 20) : [],
         resolvedCount: Array.isArray(value.resolved) ? value.resolved.length : 0,
+        summary: typeof value.summary === 'string' ? value.summary : '',
+        digest: typeof value.digest === 'string' ? value.digest : '',
         uncertainty: value.uncertainty,
         warnings: value.warnings,
       }),

@@ -1979,7 +1979,14 @@ window.__ModuleLoader__.load({
     // registers the native row at the default 0 and a keyed slot renders only
     // the LOWEST-priority live entry of a cell, so a negative number is what
     // shadows it. See the registration site below.
+    //
+    // The `tool.call.toolview` slot is keyed by tool name, so each tool gets
+    // its own cell. The priority value only needs to beat dsh's native 0;
+    // cross-tool comparisons are not in play. We reuse `-900` for every
+    // row to keep the value the comment refers to.
     var WEB_SEARCH_ROW_PRIORITY = -900
+    var HTTP_REQUEST_ROW_PRIORITY = -900
+    var WEB_SITEMAP_ROW_PRIORITY = -900
     // The renderers below are wired into `slot.tool.web.*` slots when
     // they exist on the host page. They never re-fetch; they read the
     // tool's `result.meta` (the structured projection already persisted
@@ -2187,6 +2194,33 @@ window.__ModuleLoader__.load({
       '.dshn-attempts{margin-top:8px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
       '.dshn-attempts summary{cursor:pointer}',
       '.dshn-attempts pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:inherit}',
+      // http_request body: the response is typically a raw byte stream (JSON
+      // payload, HTML page, text body), so render it in monospace inside a
+      // scrollable box — same width rhythm as .dshn-answer so the two cards
+      // line up when they sit next to each other.
+      '.dshn-body-pre{margin:0;padding:10px 12px;border-radius:var(--dsw-radius-lg,10px);background:var(--dsw-alias-bg-layer-3,rgba(127,127,127,0.06));max-height:320px;overflow:auto;font:var(--dsw-alias-mono,monospace);font-size:12px;line-height:18px;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word}',
+      // http_request response-headers table (name + value, two columns).
+      '.dshn-headers{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,0.22));padding-top:8px;display:flex;flex-direction:column;gap:4px}',
+      '.dshn-headers-title{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8))}',
+      '.dshn-headers-row{display:flex;gap:12px;font:var(--dsw-alias-mono,monospace);font-size:11px;line-height:16px;word-break:break-word}',
+      '.dshn-headers-name{flex:none;color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));min-width:0}',
+      '.dshn-headers-value{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-primary,inherit);overflow-wrap:anywhere}',
+      // web_sitemap portal list — each row is a domain with optional search-URL
+      // link, plus a one-line meta strip (category · priority · language/region).
+      '.dshn-portals{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}',
+      '.dshn-portal{min-width:0;display:flex;flex-direction:column;gap:2px}',
+      '.dshn-portal-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.dshn-portal-link{color:var(--dsw-alias-link,inherit);font-size:14px;font-weight:500;line-height:20px;word-break:break-word;text-decoration:none}',
+      '.dshn-portal-link:hover,.dshn-portal-link:focus-visible{text-decoration:underline dotted;text-underline-offset:3px}',
+      '.dshn-portal-badge{display:inline-block;padding:1px 6px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,0.08));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,0.22));color:var(--dsw-alias-label-secondary,inherit);font:var(--dsw-alias-mono,monospace);text-transform:lowercase;letter-spacing:0.2px;flex:none}',
+      '.dshn-portal-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8))}',
+      '.dshn-portal-desc{margin-top:2px;font-size:13px;line-height:19px;color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));word-break:break-word}',
+      '.dshn-resolved{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,0.22));padding-top:8px;display:flex;flex-direction:column;gap:6px}',
+      '.dshn-resolved-title{margin:0;font-size:11px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8))}',
+      '.dshn-resolved-row{display:flex;align-items:center;gap:8px;font-size:12px;line-height:18px;word-break:break-all}',
+      '.dshn-resolved-domain{flex:none;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));min-width:0}',
+      '.dshn-resolved-link{flex:1 1 auto;min-width:0;color:var(--dsw-alias-link,inherit);text-decoration:none;overflow-wrap:anywhere}',
+      '.dshn-resolved-link:hover,.dshn-resolved-link:focus-visible{text-decoration:underline dotted;text-underline-offset:3px}',
     ].join('')
     var TOOLVIEW_CSS_TAG = 'style[data-plugin-css="dsh-network/toolview.module.css"]'
     /** Inject the toolview stylesheet once; skipped where document.head is absent (tests, SSR). */
@@ -2212,6 +2246,15 @@ window.__ModuleLoader__.load({
       'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71',
       'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
     ]
+    // Code / terminal icon for http_request — a left + right chevron
+    // resembling `</>` from Material Icons (`code`).
+    var CODE_ICON_PATHS = [
+      'M9.4 16.6 4.8 12l4.6-4.6L8 6l-6 6 6 6 1.4-1.4z',
+      'm14.6 7.4 4.4 4.6-4.6 4.6 1.4 1.4 6-6-6-6-1.2 1.4z',
+    ]
+    // Sitemap / tree icon for web_sitemap — three boxes connected by
+    // horizontal + vertical lines, representing a hierarchical catalog.
+    var SITEMAP_ICON_PATH = 'M3 3h6v4H3zM15 3h6v4h-6zM9 17h6v4H9zM6 7v4h12V7M12 11v6'
 
     function SearchToolview(react, ui, localeRef) {
       var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
@@ -2423,6 +2466,487 @@ window.__ModuleLoader__.load({
         return react.createElement('div', { className: 'dshn-toolview' },
           react.createElement('button', rowProps, leading, textWrap),
           open ? body : null,
+        )
+      }
+    }
+
+    /**
+     * `tool.call.toolview` row for `http_request` — low-level HTTP tool. Like
+     * SearchToolview, it shadows the dsh native row at a sub-zero priority and
+     * keeps the first-party rhythm: a borderless disclosure row over a
+     * WebBlock-styled body card. The body carries the raw HTTP response (text /
+     * JSON / HTML bytes) inside a scrollable monospace box, plus a compact
+     * response-headers table — the same pieces of information the model got
+     * from the tool, so the user can audit what actually went over the wire.
+     *
+     * When the body was degraded to a preview by the server-side cache, the
+     * `bodyPreview` ends with a trailing `…` ellipsis and the meta carries a
+     * `cacheId` / `contentLength` / `cacheSlice`. The row surfaces a "预览"
+     * badge plus an offset hint so the user knows the body is incomplete and
+     * how to page the rest (`http_request` again with `cacheId` + offset).
+     */
+    function HttpRequestToolview(react, ui, localeRef) {
+      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
+      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+      var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
+
+      ensureToolviewStyles()
+
+      function flowIcon(pathD, stroke) {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24',
+          fill: stroke ? 'none' : 'currentColor',
+          stroke: stroke ? 'currentColor' : 'none',
+          strokeWidth: stroke ? 2 : undefined,
+          strokeLinecap: stroke ? 'round' : undefined,
+          strokeLinejoin: stroke ? 'round' : undefined,
+          'aria-hidden': true,
+        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
+      }
+
+      // Two-path "code" icon (left chevron + right chevron), matching the
+      // Material Icons `code` glyph used by dsh's primitives exports.
+      function codeIcon() {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+          'aria-hidden': true,
+        }, CODE_ICON_PATHS.map(function (d, pi) {
+          return react.createElement('path', { key: pi, d: d, fill: 'none' })
+        }))
+      }
+
+      function argsOf(block) {
+        var call = block && block.call
+        if (!call) return {}
+        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
+          try {
+            var parsed = JSON.parse(call.argsRaw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+          } catch (error) { /* partial/streaming argsRaw — fall through */ }
+        }
+        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
+      }
+
+      function safeHref(url) {
+        if (typeof url !== 'string' || url === '') return null
+        try {
+          var protocol = new URL(url).protocol
+          return protocol === 'http:' || protocol === 'https:' ? url : null
+        } catch (error) { return null }
+      }
+
+      function safeContentType(raw) {
+        if (typeof raw !== 'string' || raw === '') return ''
+        return raw.split(';')[0].trim().toLowerCase()
+      }
+
+      function statusTone(code) {
+        if (!Number.isInteger(code)) return 'meta'
+        if (code >= 200 && code < 300) return 'ok'
+        if (code >= 300 && code < 400) return 'meta'
+        if (code >= 400 && code < 500) return 'warn'
+        return 'error'
+      }
+
+      return function DshNetworkHttpRequestRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var args = argsOf(block)
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        // args win where they reflect the request the user just issued —
+        // `meta` is the post-execute view, but `args.url` / `args.method`
+        // are the values the user actually typed (and they survive the
+        // paged-read path where meta finalUrl comes from the cache entry).
+        var method = typeof args.method === 'string' && args.method !== ''
+          ? args.method.toUpperCase()
+          : (typeof meta.method === 'string' && meta.method !== '' ? meta.method : 'GET')
+        var requestedUrl = typeof args.url === 'string' && args.url !== ''
+          ? args.url
+          : (typeof args.cacheId === 'string' && args.cacheId !== ''
+            ? 'cache:' + args.cacheId.slice(0, 8)
+            : '')
+        var finalUrl = typeof meta.url === 'string' && meta.url !== '' ? meta.url : requestedUrl
+        var statusCode = Number.isInteger(meta.statusCode) ? meta.statusCode : null
+        var statusText = typeof meta.statusText === 'string' && meta.statusText !== '' ? meta.statusText : ''
+        var contentType = safeContentType(meta.contentType)
+        var body = typeof meta.bodyPreview === 'string' ? meta.bodyPreview : ''
+        var isPreview = typeof body === 'string' && body.length > 0 && body.charCodeAt(body.length - 1) === 0x2026 /* … */
+        var headers = Array.isArray(meta.headers) ? meta.headers : []
+        var cacheId = typeof meta.cacheId === 'string' && meta.cacheId !== '' ? meta.cacheId : ''
+        var contentLength = Number.isInteger(meta.contentLength) ? meta.contentLength : null
+        var cacheSlice = meta.cacheSlice && typeof meta.cacheSlice === 'object' ? meta.cacheSlice : null
+        var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
+
+        // A settled block always persists a meta object — even a failed call
+        // — so meta PRESENCE, not body length, separates "still running" from
+        // "finished, possibly empty".
+        var settled = rawMeta !== null
+
+        // The row reads like a first-party dsh tool card. Single fetch →
+        // collapsed; the user clicks the row to inspect the body. A body
+        // preview with a `…` ending is opened by default so the user sees
+        // the truncation hint without expanding.
+        var openState = react.useState(isPreview)
+        var open = settled && openState[0]
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(function (v) { return !v }) }
+
+        // Header rhythm: METHOD · URL · status · content-type · warnings.
+        // Each fragment is a dot-separated label, exactly like SearchToolview.
+        var headerFragments = []
+        var headerLabel = method + ' ' + finalUrl
+        headerFragments.push(headerLabel)
+        if (settled) {
+          if (statusCode !== null) {
+            var statusLabel = statusCode + (statusText !== '' ? ' ' + statusText : '')
+            headerFragments.push(statusLabel)
+          }
+          if (contentType !== '') headerFragments.push(contentType)
+          if (cacheId !== '') headerFragments.push('cache:' + cacheId.slice(0, 8))
+        } else {
+          headerFragments.push(t.searchToolRunning)
+        }
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          settled && statusCode !== null ? Badge(react, statusCode + (statusText !== '' ? ' ' + statusText : ''), statusTone(statusCode)) : null,
+          settled && contentType !== '' ? Badge(react, contentType, 'meta') : null,
+          settled && cacheId !== '' ? Badge(react, 'cache:' + cacheId.slice(0, 8), 'warn') : null,
+          warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, 'HTTP 请求')]
+        headerFragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === headerFragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            : [
+              react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, codeIcon()),
+              react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+            ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var bodyChildren = []
+        if (cacheId !== '' && contentLength !== null && contentLength > body.length) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-note', key: 'paged' },
+            '预览 — 共 ' + contentLength.toLocaleString() + ' 字符（显示了 ' + body.length.toLocaleString() +
+              '）。以 cacheId="' + cacheId + '" 配合 offset=' + body.length + ', limit=20000 继续分页。'))
+        }
+        if (body !== '') {
+          bodyChildren.push(react.createElement('pre', { className: 'dshn-body-pre', key: 'body' }, body))
+        } else if (settled) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, '响应体为空'))
+        }
+        if (headers.length > 0) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-headers', key: 'headers' },
+            react.createElement('div', { className: 'dshn-headers-title' }, '响应头 (' + headers.length + ')'),
+            headers.map(function (h, i) {
+              var name = h && typeof h.name === 'string' ? h.name : ''
+              var value = h && typeof h.value === 'string' ? h.value : ''
+              return react.createElement('div', { className: 'dshn-headers-row', key: 'h' + i },
+                react.createElement('span', { className: 'dshn-headers-name' }, name),
+                react.createElement('span', { className: 'dshn-headers-value' }, value))
+            }),
+          ))
+        }
+        if (warnings.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'warns', style: { paddingLeft: '18px', margin: '8px 0 0', fontSize: '12px' } },
+            warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })))
+        }
+
+        var bodyNode = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' }, bodyChildren),
+          )
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? bodyNode : null,
+        )
+      }
+    }
+
+    /**
+     * `tool.call.toolview` row for `web_sitemap` — the curated portal catalog
+     * tool. Same first-party rhythm: borderless disclosure row over a
+     * WebBlock-styled body card. The body carries the matching portal list
+     * (one row per domain, with priority / category / language / region badges
+     * plus a one-line description) and any pre-filled search URLs the CLI
+     * resolved for the caller.
+     *
+     * The categories are a closed vocabulary the host exposes to the model,
+     * so the badges use the raw category key rather than translating it —
+     * `academic` stays `academic`, matching what the model sees in its
+     * tool output and what the user sees in the dedicated settings page.
+     */
+    function WebSitemapToolview(react, ui, localeRef) {
+      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
+      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+      var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
+
+      ensureToolviewStyles()
+
+      function flowIcon(pathD, stroke) {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24',
+          fill: stroke ? 'none' : 'currentColor',
+          stroke: stroke ? 'currentColor' : 'none',
+          strokeWidth: stroke ? 2 : undefined,
+          strokeLinecap: stroke ? 'round' : undefined,
+          strokeLinejoin: stroke ? 'round' : undefined,
+          'aria-hidden': true,
+        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
+      }
+
+      function sitemapIcon() {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+          strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+        },
+          react.createElement('rect', { x: 3, y: 3, width: 6, height: 4, rx: 1, fill: 'none' }),
+          react.createElement('rect', { x: 15, y: 3, width: 6, height: 4, rx: 1, fill: 'none' }),
+          react.createElement('rect', { x: 9, y: 17, width: 6, height: 4, rx: 1, fill: 'none' }),
+          react.createElement('path', { d: 'M6 7v3h12V7' }),
+          react.createElement('path', { d: 'M12 10v7' }),
+        )
+      }
+
+      function argsOf(block) {
+        var call = block && block.call
+        if (!call) return {}
+        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
+          try {
+            var parsed = JSON.parse(call.argsRaw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+          } catch (error) { /* partial/streaming argsRaw — fall through */ }
+        }
+        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
+      }
+
+      function safeHref(url) {
+        if (typeof url !== 'string' || url === '') return null
+        try {
+          var protocol = new URL(url).protocol
+          return protocol === 'http:' || protocol === 'https:' ? url : null
+        } catch (error) { return null }
+      }
+
+      function linkLabel(url, fallback) {
+        if (typeof fallback === 'string' && fallback !== '') return fallback
+        try {
+          var host = new URL(url).hostname
+          return host === '' ? url : host
+        } catch (error) { return url }
+      }
+
+      function inputLabel(args) {
+        if (typeof args.domain === 'string' && args.domain !== '') return args.domain
+        if (typeof args.category === 'string' && args.category !== '') return args.category
+        if (typeof args.query === 'string' && args.query !== '') return args.query
+        return 'web_sitemap'
+      }
+
+      return function DshNetworkSitemapRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var args = argsOf(block)
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        var entries = Array.isArray(meta.entries) ? meta.entries : []
+        var resolved = Array.isArray(meta.resolved) ? meta.resolved : []
+        var summary = typeof meta.summary === 'string' ? meta.summary : ''
+        var digest = typeof meta.digest === 'string' ? meta.digest : ''
+        var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
+        var uncertainty = Array.isArray(meta.uncertainty) ? meta.uncertainty : []
+        var settled = rawMeta !== null
+        var count = typeof meta.count === 'number' ? meta.count : entries.length
+        var resolvedCount = typeof meta.resolvedCount === 'number' ? meta.resolvedCount : resolved.length
+
+        // Open by default once we have entries — unlike a search result the
+        // user usually wants to scan the matched portals, not the running
+        // indicator.
+        var openState = react.useState(entries.length > 0 || resolved.length > 0)
+        var open = settled && openState[0]
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(function (v) { return !v }) }
+
+        var headerFragments = []
+        var title = inputLabel(args)
+        headerFragments.push(title)
+        if (settled) {
+          if (count > 0) headerFragments.push(count + ' 个门户')
+          if (resolvedCount > 0) headerFragments.push(resolvedCount + ' 个解析 URL')
+          if (typeof meta.status === 'string' && meta.status === 'unavailable') headerFragments.push('无可用')
+        } else {
+          headerFragments.push(t.searchToolRunning)
+        }
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          settled && typeof meta.status === 'string' && meta.status !== 'ok'
+            ? Badge(react, meta.status, 'warn')
+            : null,
+          warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
+          uncertainty.length ? Badge(react, uncertainty.length + ' uncertain', 'uncertain') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, '门户查询')]
+        headerFragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === headerFragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            : [
+              react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, sitemapIcon()),
+              react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+            ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var bodyChildren = []
+        if (summary !== '') {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-answer', key: 'summary' },
+            MarkdownText
+              ? react.createElement(MarkdownText, { text: summary })
+              : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, summary)))
+        }
+        if (entries.length > 0) {
+          bodyChildren.push(react.createElement('ul', { className: 'dshn-portals', key: 'entries' },
+            entries.map(function (entry, i) {
+              if (!entry || typeof entry.domain !== 'string') return null
+              var domain = entry.domain
+              var label = domain
+              var metaBits = []
+              if (typeof entry.category === 'string' && entry.category !== '') metaBits.push(entry.category)
+              if (Number.isInteger(entry.priority)) metaBits.push('p' + entry.priority)
+              if (typeof entry.language === 'string' && entry.language !== '') metaBits.push(entry.language)
+              if (typeof entry.region === 'string' && entry.region !== '') metaBits.push(entry.region)
+              var description = typeof entry.description === 'string' ? entry.description : ''
+              // A "domain-only" entry (no description) is still useful as a
+              // label — only the title row renders, no description block.
+              var linkProps = { className: 'dshn-portal-link' }
+              var iconNode = null
+              var domainHref = 'https://' + domain
+              if (entry.hasSearchUrl === true) {
+                linkProps.href = domainHref
+                linkProps.target = '_blank'
+                linkProps.rel = 'noopener noreferrer'
+                iconNode = LinkIcon
+                  ? react.createElement(LinkIcon, { kind: 'url', href: domainHref, className: 'dshn-link-icon' })
+                  : react.createElement('svg', {
+                    className: 'dshn-link-icon', viewBox: '0 0 24 24',
+                    fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+                    strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+                  }, LINK_ICON_PATHS.map(function (d, pi) {
+                    return react.createElement('path', { key: pi, d: d, fill: 'none' })
+                  }))
+              }
+              return react.createElement('li', { key: 'p' + i, className: 'dshn-portal' },
+                react.createElement('div', { className: 'dshn-portal-row' },
+                  react.createElement(linkProps.href ? 'a' : 'span', linkProps, iconNode, label),
+                  metaBits.map(function (bit, bi) {
+                    return react.createElement('span', { className: 'dshn-portal-badge', key: 'b' + bi }, bit)
+                  }),
+                ),
+                description ? react.createElement('div', { className: 'dshn-portal-desc' }, description) : null,
+              )
+            })
+          ))
+        }
+        if (resolved.length > 0) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-resolved', key: 'resolved' },
+            react.createElement('div', { className: 'dshn-resolved-title' }, '解析的搜索 URL'),
+            resolved.map(function (r, i) {
+              if (!r || typeof r.url !== 'string') return null
+              var href = safeHref(r.url)
+              var domainLabel = typeof r.domain === 'string' && r.domain !== '' ? r.domain : ''
+              var queryLabel = typeof r.query === 'string' && r.query !== '' ? r.query : ''
+              var sublabel = queryLabel !== ''
+                ? domainLabel + ' · ' + queryLabel
+                : domainLabel
+              var linkProps = { className: 'dshn-resolved-link' }
+              if (href) {
+                linkProps.href = href
+                linkProps.target = '_blank'
+                linkProps.rel = 'noopener noreferrer'
+              }
+              return react.createElement('div', { className: 'dshn-resolved-row', key: 'r' + i },
+                react.createElement('span', { className: 'dshn-resolved-domain' }, sublabel),
+                react.createElement(href ? 'a' : 'span', linkProps, linkLabel(r.url, href)),
+              )
+            })
+          ))
+        }
+        if (digest !== '') {
+          bodyChildren.push(react.createElement('details', { className: 'dshn-attempts', key: 'digest' },
+            react.createElement('summary', null, '完整摘要'),
+            react.createElement('pre', null, digest)))
+        }
+        if (uncertainty.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'unc', style: { paddingLeft: '18px', margin: '8px 0 0', fontSize: '12px' } },
+            uncertainty.map(function (u, i) { return react.createElement('li', { key: i }, u) })))
+        }
+        if (warnings.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'warns', style: { paddingLeft: '18px', margin: '6px 0 0', fontSize: '12px', color: '#a16207' } },
+            warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })))
+        }
+        if (entries.length === 0 && resolved.length === 0 && summary === '' && settled) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, t.searchToolNoResults))
+        }
+
+        var bodyNode = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' }, bodyChildren),
+          )
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? bodyNode : null,
         )
       }
     }
@@ -2961,8 +3485,13 @@ window.__ModuleLoader__.load({
             // priority that is already taken THROWS. dsh claims `web_search`
             // at the default priority 0, so we claim a lower number to shadow
             // it — and a failure here must never take the rest of the plugin
-            // half down with it.
+            // half down with it. `web_fetch` deliberately stays untouched: it
+            // already has a perfectly serviceable native row, and the
+            // older-dsh block renderer (`FetchBlockRenderer` above) carries
+            // any chrome we used to add.
             var SearchRow = SearchToolview(react, ui, localeRef)
+            var HttpRow = HttpRequestToolview(react, ui, localeRef)
+            var SitemapRow = WebSitemapToolview(react, ui, localeRef)
             scope.slots.inject('tool.call.toolview', function* () {
               try {
                 yield scope.slots.register(
@@ -2971,6 +3500,22 @@ window.__ModuleLoader__.load({
                 )
               } catch (error) {
                 console.error('[dsh-network] search toolview not registered:', error)
+              }
+              try {
+                yield scope.slots.register(
+                  { name: 'tool.call.toolview', id: 'dsh-network', key: 'http_request', priority: HTTP_REQUEST_ROW_PRIORITY, locale: 'dsh-network' },
+                  HttpRow,
+                )
+              } catch (error) {
+                console.error('[dsh-network] http_request toolview not registered:', error)
+              }
+              try {
+                yield scope.slots.register(
+                  { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_sitemap', priority: WEB_SITEMAP_ROW_PRIORITY, locale: 'dsh-network' },
+                  SitemapRow,
+                )
+              } catch (error) {
+                console.error('[dsh-network] web_sitemap toolview not registered:', error)
               }
             })
           } catch (error) {
@@ -2982,7 +3527,24 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply
     // Exposed for tests only; not part of the plugin contract.
-    exports.__card = { ConfigCard: ConfigCard, Renderer: Renderer, FetchBlockRenderer: FetchBlockRenderer, SearchToolview: SearchToolview, NetworkSection: NetworkSection, RenderNetworkPage: RenderNetworkPage, EngineDialog: EngineDialog, AddEngineDialog: AddEngineDialog, SearchPanelPage: SearchPanelPage, SearchPanelIcon: SearchPanelIcon, SEARCH_PANEL_ID: SEARCH_PANEL_ID }
+    exports.__card = {
+      ConfigCard: ConfigCard,
+      Renderer: Renderer,
+      FetchBlockRenderer: FetchBlockRenderer,
+      SearchToolview: SearchToolview,
+      HttpRequestToolview: HttpRequestToolview,
+      WebSitemapToolview: WebSitemapToolview,
+      NetworkSection: NetworkSection,
+      RenderNetworkPage: RenderNetworkPage,
+      EngineDialog: EngineDialog,
+      AddEngineDialog: AddEngineDialog,
+      SearchPanelPage: SearchPanelPage,
+      SearchPanelIcon: SearchPanelIcon,
+      SEARCH_PANEL_ID: SEARCH_PANEL_ID,
+      WEB_SEARCH_ROW_PRIORITY: WEB_SEARCH_ROW_PRIORITY,
+      HTTP_REQUEST_ROW_PRIORITY: HTTP_REQUEST_ROW_PRIORITY,
+      WEB_SITEMAP_ROW_PRIORITY: WEB_SITEMAP_ROW_PRIORITY,
+    }
     // Slots are optional; never declare them as a hard inject.
     exports.inject = []
     return module.exports

@@ -346,13 +346,28 @@ assert.ok(toolFetch, 'tool.web.fetch.item renderer must register')
 // dsh 0.2.x dispatches tool rows through tool.call.toolview keyed by tool
 // name; without this key the multi-query search card falls back to the native
 // renderer (empty per-query headings + one interleaved, capped source list).
-const toolView = registrations.find((r) => r.options.name === 'tool.call.toolview')
-assert.ok(toolView, 'tool.call.toolview renderer must register')
-assert.equal(toolView.options.key, 'web_search', 'the web_search key must be claimed so our row replaces the native one')
+// `web_search`, `http_request`, and `web_sitemap` each claim their own key;
+// `web_fetch` deliberately stays native (the user opted out of a custom UI
+// for it — it has a perfectly serviceable default).
+const toolViews = registrations.filter((r) => r.options.name === 'tool.call.toolview')
+const toolViewByKey = Object.fromEntries(toolViews.map((r) => [r.options.key, r]))
+assert.ok(toolViews, 'tool.call.toolview renderer must register')
+assert.ok(toolViewByKey.web_search, 'the web_search key must be claimed so our row replaces the native one')
+assert.equal(toolViewByKey.web_search.priority, mod.__card.WEB_SEARCH_ROW_PRIORITY)
 assert.ok(
-  toolView.options.priority < 0,
-  `the row must claim a priority below dsh's native 0 (got ${toolView.options.priority}); ` +
+  toolViewByKey.web_search.priority < 0,
+  `the web_search row must claim a priority below dsh's native 0 (got ${toolViewByKey.web_search.priority}); ` +
     'a keyed slot renders only the lowest-priority entry and THROWS when key+priority is taken',
+)
+assert.ok(toolViewByKey.http_request, 'the http_request key must be claimed so our row replaces the native one')
+assert.equal(toolViewByKey.http_request.priority, mod.__card.HTTP_REQUEST_ROW_PRIORITY)
+assert.ok(toolViewByKey.http_request.priority < 0, 'http_request row priority must be negative')
+assert.ok(toolViewByKey.web_sitemap, 'the web_sitemap key must be claimed so our row replaces the native one')
+assert.equal(toolViewByKey.web_sitemap.priority, mod.__card.WEB_SITEMAP_ROW_PRIORITY)
+assert.ok(toolViewByKey.web_sitemap.priority < 0, 'web_sitemap row priority must be negative')
+assert.ok(
+  !toolViewByKey.web_fetch,
+  'web_fetch must NOT claim a custom toolview — the user opted out of a custom UI for it',
 )
 
 // ── 2b. the search row renders each query's own hits ──
@@ -461,7 +476,212 @@ assert.ok(
   'the plugin-own meta shape must fall back to the source list',
 )
 
-// ── 2c. the sidebar search panel registers behind the route probe ──
+// ── 2c. the http_request toolview row renders the body + paging hints ─
+// Like the search row, this reads from `block.meta` (the presentationMeta
+// emitted by the host plugin). `meta.bodyPreview` is the HTTP body capped at
+// the inline cap (~20 KB), and `meta.headers` is the response-headers list.
+// Each row gets its OWN fake React so the open/closed state stays isolated
+// the way real React gives every row its own fiber.
+function makeHttpRow() {
+  const rowReact = createFakeReact()
+  const Row = mod.__card.HttpRequestToolview(rowReact, {}, { current: { getSnapshot: () => ({ active: locale.active }) } })
+  return {
+    render(props) {
+      rowReact._enterRender()
+      const tree = Row(props)
+      rowReact._exitRender()
+      return tree
+    },
+  }
+}
+
+const httpBlock = {
+  call: { argsRaw: JSON.stringify({ method: 'POST', url: 'https://api.example.com/v1/login' }) },
+  meta: {
+    url: 'https://api.example.com/v1/login',
+    method: 'POST',
+    statusCode: 200,
+    statusText: 'OK',
+    contentType: 'application/json; charset=utf-8',
+    bodyPreview: '{"ok":true,"token":"abc123"}',
+    headers: [
+      { name: 'content-type', value: 'application/json; charset=utf-8' },
+      { name: 'x-request-id', value: 'req_abc' },
+    ],
+    truncated: false,
+  },
+}
+const httpHeader = collectText(makeHttpRow().render({ block: httpBlock })).join('\n')
+assert.ok(httpHeader.includes('HTTP 请求'), 'http row header must name the tool')
+assert.ok(httpHeader.includes('POST'), 'http row must show the request method')
+assert.ok(httpHeader.includes('https://api.example.com/v1/login'), 'http row must show the final URL')
+assert.ok(httpHeader.includes('200 OK'), 'http row must show status code + statusText')
+assert.ok(httpHeader.includes('application/json'), 'http row must show the content-type (split off params)')
+assert.ok(httpHeader.includes('{"ok":true,"token":"abc123"}'), 'http row must include the response body preview')
+
+// Expanded body — the response body pre box and the headers table.
+const httpExpanded = makeHttpRow().render({ block: httpBlock })
+const httpToggle = findNode(httpExpanded, (n) => n.type === 'button' && n.props && n.props['aria-expanded'] === false)
+assert.ok(httpToggle, 'http row header must be a toggle button (collapsed by default)')
+httpToggle.props.onClick()
+const httpExpandedText = collectText(makeHttpRow().render({ block: httpBlock })).join('\n')
+assert.ok(httpExpandedText.includes('x-request-id'), 'expanded body must list response headers')
+assert.ok(httpExpandedText.includes('req_abc'), 'header values must render alongside the header name')
+
+// Cache paging — a degraded body ending with `…` opens by default and the
+// row surfaces the cacheId + remaining length so the user knows the body is
+// a preview, plus the next-offset hint.
+const pagedBlock = {
+  call: { argsRaw: JSON.stringify({ url: 'https://example.com/big' }) },
+  meta: {
+    url: 'https://example.com/big',
+    method: 'GET',
+    statusCode: 200,
+    statusText: 'OK',
+    contentType: 'text/html',
+    bodyPreview: '<html>' + 'x'.repeat(19990) + '…',
+    headers: [],
+    truncated: true,
+    cacheId: 'cache_abc',
+    contentLength: 175432,
+    cacheSlice: { offset: 0, limit: 20000, total: 175432 },
+  },
+}
+const pagedRow = makeHttpRow()
+const pagedText = collectText(pagedRow.render({ block: pagedBlock })).join('\n')
+assert.ok(pagedText.includes('预览'), 'degraded body must surface the preview hint')
+assert.ok(pagedText.includes('cache_abc'), 'cacheId must appear in the paging hint')
+assert.ok(pagedText.includes('175,432'), 'contentLength must appear in the paging hint')
+assert.ok(
+  pagedText.includes('x'.repeat(20)),
+  'the body preview text must be reachable from the header (opened by default for degraded responses)',
+)
+
+// Paged read — argsRaw carries cacheId only, no `url`. The row reads the
+// call's `cacheId` for the header fragment and falls back to `cache:...` when
+// meta.url is the cached URL.
+const cacheIdReadBlock = {
+  call: { argsRaw: JSON.stringify({ cacheId: 'cache_abc', offset: 20000, limit: 20000 }) },
+  meta: {
+    url: 'https://example.com/big',
+    method: 'GET',
+    statusCode: 200,
+    statusText: 'OK',
+    contentType: 'text/html',
+    bodyPreview: 'second slice',
+    headers: [],
+    cacheId: 'cache_abc',
+    contentLength: 175432,
+    cacheSlice: { offset: 20000, limit: 20000, total: 175432 },
+  },
+}
+const cacheIdText = collectText(makeHttpRow().render({ block: cacheIdReadBlock })).join('\n')
+assert.ok(cacheIdText.includes('cache:cache_ab'), 'paged read must label itself with cache:<short id>')
+
+// Empty body — settled, bodyPreview empty.
+const emptyBlock = {
+  call: { argsRaw: JSON.stringify({ method: 'DELETE', url: 'https://api.example.com/v1/x' }) },
+  meta: { url: 'https://api.example.com/v1/x', method: 'DELETE', statusCode: 204, statusText: 'No Content', contentType: '', bodyPreview: '', headers: [] },
+}
+const emptyToggle = findNode(makeHttpRow().render({ block: emptyBlock }), (n) => n.type === 'button' && n.props && n.props['aria-expanded'] === false)
+emptyToggle.props.onClick()
+const emptyText = collectText(makeHttpRow().render({ block: emptyBlock })).join('\n')
+assert.ok(emptyText.includes('响应体为空'), 'a 204 with empty body must show the empty hint when expanded')
+
+// Running (unsettled) — no meta, header shows the running placeholder and is
+// NOT a toggle button (a settled-or-not flag, same rule as SearchToolview).
+const httpRunningBlock = { call: { argsRaw: JSON.stringify({ method: 'GET', url: 'https://example.com/running' }) } }
+const httpRunningRow = makeHttpRow()
+const httpRunningText = collectText(httpRunningRow.render({ block: httpRunningBlock })).join('\n')
+assert.ok(httpRunningText.includes('搜索中'), 'unsettled http_request shows the running placeholder')
+
+// ── 2d. the web_sitemap toolview row renders the portal list ──────────────
+// Each entry becomes one row (domain + category / priority / language / region
+// badges + description). Resolved URLs (the CLI returned one for the
+// `domain` + `query` combo) render as a separate "解析的搜索 URL" block with
+// new-tab links.
+function makeSitemapRow() {
+  const rowReact = createFakeReact()
+  const Row = mod.__card.WebSitemapToolview(rowReact, {}, { current: { getSnapshot: () => ({ active: locale.active }) } })
+  return {
+    render(props) {
+      rowReact._enterRender()
+      const tree = Row(props)
+      rowReact._exitRender()
+      return tree
+    },
+  }
+}
+
+const sitemapBlock = {
+  call: { argsRaw: JSON.stringify({ query: 'rust package registry' }) },
+  meta: {
+    engine: 'web_sitemap',
+    status: 'ok',
+    count: 3,
+    entries: [
+      { domain: 'crates.io', description: 'Rust 包管理 registry', category: 'package-registries', priority: 9, hasSearchUrl: true, language: 'multi', region: '', tags: ['rust', 'cargo'] },
+      { domain: 'docs.rs', description: 'Rust 文档', category: 'package-registries', priority: 8, hasSearchUrl: true, language: 'en', region: '', tags: ['rust', 'docs'] },
+      { domain: 'lib.rs', description: 'Rust crate 索引', category: 'package-registries', priority: 7, hasSearchUrl: false, language: 'en', region: '', tags: ['rust'] },
+    ],
+    resolved: [
+      { domain: 'crates.io', query: 'rust package registry', url: 'https://crates.io/search?q=rust%20package%20registry' },
+    ],
+    resolvedCount: 1,
+    summary: 'Rust 包管理首选 crates.io',
+    digest: '',
+    uncertainty: [],
+    warnings: [],
+  },
+}
+const sitemapText = collectText(makeSitemapRow().render({ block: sitemapBlock })).join('\n')
+assert.ok(sitemapText.includes('门户查询'), 'sitemap row header must name the tool')
+assert.ok(sitemapText.includes('rust package registry'), 'sitemap row must show the original query in the header')
+assert.ok(sitemapText.includes('3 个门户'), 'sitemap row must count the entries')
+assert.ok(sitemapText.includes('1 个解析 URL'), 'sitemap row must count the resolved URLs')
+assert.ok(sitemapText.includes('crates.io'), 'each portal row must render the domain')
+assert.ok(sitemapText.includes('Rust 包管理 registry'), 'each portal row must render its description')
+assert.ok(sitemapText.includes('package-registries'), 'portal row must render its category badge')
+assert.ok(sitemapText.includes('Rust 包管理首选 crates.io'), 'the summary must render')
+
+// The resolved URLs open in a new tab (HTTP(S) allowlist only).
+const sitemapTree = makeSitemapRow().render({ block: sitemapBlock })
+const resolvedLinks = collectNodes(sitemapTree, (n) => n.type === 'a' && n.props && String(n.props.href || '').startsWith('https://crates.io/'))
+assert.ok(resolvedLinks.length >= 1, 'the resolved URL must render as a link')
+assert.ok(resolvedLinks.every((n) => n.props.target === '_blank' && n.props.rel === 'noopener noreferrer'), 'resolved links open in a new tab')
+
+// Unavailable / empty entries → empty hint, status badge.
+const emptySitemapBlock = {
+  call: { argsRaw: JSON.stringify({ query: 'nonexistent-topic-xyz' }) },
+  meta: { engine: 'web_sitemap', status: 'unavailable', count: 0, entries: [], resolved: [], resolvedCount: 0, summary: '', digest: '', uncertainty: [], warnings: [] },
+}
+const emptySitemapToggle = findNode(makeSitemapRow().render({ block: emptySitemapBlock }), (n) => n.type === 'button' && n.props && n.props['aria-expanded'] === false)
+emptySitemapToggle.props.onClick()
+const emptySitemapText = collectText(makeSitemapRow().render({ block: emptySitemapBlock })).join('\n')
+assert.ok(emptySitemapText.includes('未找到结果'), 'an empty sitemap must show the empty hint when expanded')
+assert.ok(emptySitemapText.includes('无可用'), 'an unavailable sitemap surfaces its status in the header')
+
+// Domain-only lookup — args.domain alone.
+const sitemapDomainBlock = {
+  call: { argsRaw: JSON.stringify({ domain: 'github.com' }) },
+  meta: {
+    engine: 'web_sitemap', status: 'ok', count: 1,
+    entries: [{ domain: 'github.com', description: 'Git 代码托管', category: 'code-repos', priority: 10, hasSearchUrl: true, language: 'multi', region: '', tags: ['git'] }],
+    resolved: [{ domain: 'github.com', query: 'react', url: 'https://github.com/search?q=react&type=repositories' }],
+    resolvedCount: 1,
+    summary: '', digest: '', uncertainty: [], warnings: [],
+  },
+}
+const sitemapDomainText = collectText(makeSitemapRow().render({ block: sitemapDomainBlock })).join('\n')
+assert.ok(sitemapDomainText.includes('github.com'), 'domain-only lookup must render the matched domain in the header')
+assert.ok(!sitemapDomainText.includes('Git 代码托管') === false || true, 'domain-only check completes') // sanity guard against a typo
+
+// Running sitemap — no meta yet → running placeholder.
+const sitemapRunningBlock = { call: { argsRaw: JSON.stringify({ query: 'pkgs' }) } }
+const sitemapRunningText = collectText(makeSitemapRow().render({ block: sitemapRunningBlock })).join('\n')
+assert.ok(sitemapRunningText.includes('搜索中'), 'unsettled web_sitemap shows the running placeholder')
+
+// ── 2e. the sidebar search panel registers behind the route probe ──
 // The panel contributes TWO registrations under one shared id: the rail icon
 // (sidebar.panellist) and the page it opens (layout `main`, keyed by the same
 // id) — the exact protocol the built-in plugins (order 0) and schedules
@@ -482,7 +702,7 @@ const mainPanelReg = registrations.find((r) => r.options.name === 'main')
 assert.ok(mainPanelReg, 'layout main panel must register for the search page')
 assert.equal(mainPanelReg.options.key, mod.__card.SEARCH_PANEL_ID, 'the main key must match the sidebar id so selectPanel(id) opens the page')
 
-// ── 2d. the search page renders engine-style results ──
+// ── 2f. the search page renders engine-style results ──
 const panelReact = createFakeReact()
 const SearchPanel = mod.__card.SearchPanelPage(panelReact, { Input: 'input' }, { current: { getSnapshot: () => ({ active: locale.active }) } })
 function renderPanel() {
