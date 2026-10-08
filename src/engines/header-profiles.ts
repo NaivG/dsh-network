@@ -31,7 +31,7 @@ const EDGE_151_UA =
 export const BROWSER_BASE: Readonly<Record<string, string>> = {
   'User-Agent': FIREFOX_154_UA,
   Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-  'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+  'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8,zh;q=0.7,*;q=0.6',
   'Accept-Encoding': 'gzip, deflate, br',
   DNT: '1',
   'Upgrade-Insecure-Requests': '1',
