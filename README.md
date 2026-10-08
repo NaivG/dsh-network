@@ -1,10 +1,18 @@
+<div align="center">
+
 # dsh-network
 
 Let Deepseek Harness access the internet seamlessly.
 
-Works with `dsh: 0.1.0.rc1` or later.
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
+[![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/naivg/dsh-network)
+
+</div>
 
 Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI over `undici`, parses PDF / Office / EPUB documents to Markdown via `officeparser`, and contributes `http_request`, a dedicated "网络" settings section, a sidebar web-search panel (search-engine-style UI over the same engine chain, backed by `/dsh-network/search`), and web block renderers to the dsh web frontend. The host keeps **one** persistent `dsh-network server` child for its lifetime and pages oversized results via a server-side cache instead of truncating across the child-process boundary.
+
+Works with `dsh: 0.1.0.rc1` or later.
 
 > **Note:** This plugin is not yet published to npm.
 
