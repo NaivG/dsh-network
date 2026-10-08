@@ -21,6 +21,7 @@
  * only over the loopback socket, never to the browser, and every tool call
  * reflects the latest settings without restarting the server.
  */
+import fs from 'node:fs'
 import http from 'node:http'
 import { fileURLToPath } from 'node:url'
 import { spawnHidden } from './spawnHidden.js'
@@ -127,8 +128,25 @@ export function createNetworkServerClient(options = {}) {
     if (typeof logger?.info === 'function') logger.info('[dsh-network]', ...args)
   }
 
+  /**
+   * Pre-flight the bundle before spawning. 
+   * A missing bundle means the install is incomplete or predates the build
+   * output. Name that, instead of letting the spawn fail as the opaque
+   * "server exited during startup (code 1)".
+   */
+  function assertCliPresent() {
+    if (fs.existsSync(cliPath)) return
+    throw new Error(
+      `dsh-network CLI bundle is missing: ${cliPath} does not exist. ` +
+        'The bundle ships with the package, so this install is incomplete or out of date — ' +
+        'reinstall dsh-network from its git source, or run `pnpm build` inside the plugin ' +
+        'checkout and commit dist/.',
+    )
+  }
+
   function spawnServer() {
     if (disposed) throw new Error('dsh-network server client is disposed')
+    assertCliPresent()
     log('spawning server:', cliPath)
     const base = process.versions.electron ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : process.env
     child = spawnHidden(process.execPath, [cliPath, 'server'], {
@@ -136,6 +154,14 @@ export function createNetworkServerClient(options = {}) {
       windowsHide: true,
       env: base,
     })
+    // The server speaks JSON on stdout only; anything on stderr is a crash
+    // trace. Keep a tail of it so startup failures explain themselves.
+    let stderrTail = ''
+    child.stderr?.on('data', (chunk) => {
+      stderrTail = (stderrTail + chunk.toString('utf8')).slice(-2000)
+    })
+    const withStderr = (message) =>
+      stderrTail.trim() === '' ? message : `${message}: ${stderrTail.trim().slice(-500)}`
     child.on('exit', (code) => {
       ready = false
       port = 0
@@ -150,7 +176,7 @@ export function createNetworkServerClient(options = {}) {
     // Announce readiness from the first stdout JSON line.
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
-        reject(new Error('dsh-network server did not announce a port'))
+        reject(withStderr(new Error('dsh-network server did not announce a port')))
       }, readyTimeoutMs)
       const onData = (chunk) => {
         const text = chunk.toString('utf8')
@@ -169,7 +195,7 @@ export function createNetworkServerClient(options = {}) {
       })
       child.once('exit', (code) => {
         clearTimeout(timer)
-        reject(new Error(`dsh-network server exited during startup (code ${code})`))
+        reject(withStderr(new Error(`dsh-network server exited during startup (code ${code})`)))
       })
     })
   }
@@ -243,7 +269,10 @@ export function createNetworkServerClient(options = {}) {
     invoke,
     health,
     dispose,
+    cliPath,
     get ready() { return ready },
     get port() { return port },
+    get pid() { return child?.pid ?? null },
+    get disposed() { return disposed },
   }
 }

@@ -2,4 +2,5 @@
 # officeparser for OCR) must never run its build scripts: OCR is
 # intentionally off in this package, and its core download is pure bloat.
 allowBuilds:
-  tesseract.js: false
+  esbuild: true
+  tesseract.js: true

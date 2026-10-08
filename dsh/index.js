@@ -315,11 +315,12 @@ export const inject = ['tools', 'web', 'systemPrompt']
 
 // The single persistent `dsh-network server` child. Created lazily on first
 // use and bound to the Cordis fiber via ctx.effect(), so it follows dsh's
-// lifecycle (started with dsh, killed on dispose).
+// lifecycle (started with dsh, killed on dispose). The fiber disposer clears
+// this reference, so a reload gets a live client instead of the disposed one.
 let networkClient = null
 
 function getNetworkClient() {
-  if (!networkClient) networkClient = createNetworkServerClient()
+  if (!networkClient || networkClient.disposed) networkClient = createNetworkServerClient()
   return networkClient
 }
 
@@ -1825,6 +1826,14 @@ export function apply(ctx, rawConfig) {
   if (typeof ctx.effect === 'function') {
     ctx.effect(() => () => {
       void client.dispose()
+      // Release the module singleton. A disposed client can never serve
+      // another call (`ensure()` throws "server client is disposed"), and this
+      // module outlives every cordis fiber — so without dropping the
+      // reference, the NEXT apply() (plugin reload after `plugin add`, a
+      // settings save that re-applies the row, a session fiber restart) would
+      // hand out the corpse and every tool call + the health route would fail
+      // with that opaque error for the rest of the host's lifetime.
+      if (networkClient === client) networkClient = null
     })
   }
 
