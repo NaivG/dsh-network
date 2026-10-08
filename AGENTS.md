@@ -82,7 +82,8 @@ only actor that can flip the toggle.
   do not collide on registration.
 - **DSH browser half** (`dsh/client.js`). Lazy-CJS module loaded by
   dsh web. The factory MUST declare its `require` parameter. Mounts a
-  dedicated `settings.section` ("网络"), a dormant
+  dedicated `settings.section` ("网络"), a sidebar search panel
+  (`sidebar.panellist` + layout `main`), a dormant
   `settings.plugin.item` card, and block renderers on
   `tool.web.item` / `tool.web.fetch.item` (older dsh) plus the current
   `tool.call.toolview` key `web_search`.
@@ -130,6 +131,28 @@ only actor that can flip the toggle.
   is detected by meta PRESENCE (a finished zero-hit call persists a meta
   object), not by hit count — the old test left such calls showing
   搜索中… forever.
+- **Sidebar search panel** (`dsh/client.js` `SearchPanelPage` +
+  `dsh/index.js` `registerSearchRoute`). A search-engine-style page behind
+  a sidebar rail entry, built on the same two-registration protocol the
+  built-in plugins (order 0) and schedules (order 10) panels use: an icon
+  in the root-scoped `sidebar.panellist` list slot with
+  `{ id: 'dsh-network-search', order: 20, label }`, and the page component
+  registered into the layout's root-scoped KEYED `main` slot under the
+  same key — `layout.selectPanel(id)` validates the key against `main`
+  entries, so id and key must match. The page POSTs
+  `{ query, count, engine }` to the host's `/dsh-network/search` route
+  (fenced by `isTrustedRequest` like the config route; `GET ?q=` is also
+  accepted) which runs the SAME `runCli(['search', …])` path as the
+  `web_search` tool — live engine chain, per-call env snapshot. The route
+  is dynamically gated by `config.webSearchTool`, and `applyCardSettings`
+  now honors the tool toggles (`webSearchTool` etc.) via the config PUT —
+  previously the settings page's toggles were silently dropped on write.
+  The panel only mounts after the `/dsh-network/config` probe proves the
+  host plugin is present AND `webSearchTool !== false` in the summary; hit
+  results render as cards (title link target=_blank, host, snippet, date)
+  under the engines' summary, and panel state (last query/results/history)
+  survives unmounts in a module-level cache so peeking at the conversation
+  never loses results.
 - **Single responsibility**. This package owns live web (search +
   fetch + http + document parsing). Image parsing lives in `modlens`.
 - **Search engine registry**. Each engine lives in its own file under
@@ -170,9 +193,9 @@ dsh-network/
 ├── vite.cli.config.ts          # SSR build for the CLI
 ├── scripts/prepare.mjs         # git-install build hook: vite build, skips cleanly when devDeps are absent
 ├── dsh/
-│   ├── index.js                # host plugin (apply ctx, eager server start, register providers/tools/route)
+│   ├── index.js                # host plugin (apply ctx, eager server start, register providers/tools/routes incl. /dsh-network/search)
 │   ├── serverClient.js         # host ↔ loopback server client (ensure/invoke/health/dispose)
-│   ├── client.js               # browser half: "网络" settings section + Plugins-tab card + block renderers
+│   ├── client.js               # browser half: "网络" settings section + sidebar search panel + Plugins-tab card + block renderers
 │   ├── persist.js              # durable config store (~/.dsh/dsh-network.json, atomic write)
 │   └── spawnHidden.js          # child-process boundary used by serverClient (single child)
 ├── src/
@@ -273,15 +296,21 @@ are bounded by `--max-results` (default 10, hard cap 20).
   (`tests/client-smoke.mjs`, plain node): asserts the "网络" section
   registers with a working `require`, the page renders and saves
   through the loopback route, the Plugins-tab card + renderers bind
-  after the route probe, and the `tool.call.toolview` `web_search` row
+  after the route probe, the `tool.call.toolview` `web_search` row
   renders each query's own answer section (never the pooled source
-  list) with a sub-zero priority.
+  list) with a sub-zero priority, and the sidebar search panel
+  registers (`sidebar.panellist` icon + keyed `main` page) and renders
+  engine-style result cards from a stubbed `/dsh-network/search` POST
+  (links, host/snippet/date, summary, warnings, recent-chip rerun,
+  error card, and state surviving an unmount/remount).
 - `pnpm run test:persist` for the durability smoke test
   (`tests/persist-smoke.mjs`, plain node): snapshots save/load
   atomically, corrupt/missing files degrade with a warning, and a
   full fake-host round-trip (apply → PUT → restart → GET) proves UI
   edits survive restarts, secrets included, `enabled` kill-switch
-  excluded.
+  excluded; also probes the `/dsh-network/search` route contract
+  (fence 403, missing query 400, bad count 400, wrong method 405,
+  and the `webSearchTool` kill-switch gating the route).
 - `pnpm run test:schema` for the tool-schema guard
   (`tests/schema-check.mjs`, plain node): extracts every `parameters` /
   `output.schema` block registered by `dsh/index.js` and asserts they
@@ -305,6 +334,12 @@ are bounded by `--max-results` (default 10, hard cap 20).
   honors the same loopback + `sec-fetch-site: same-origin` + Origin ==
   Host fence dsh's own `/api` uses; the browser card therefore can be
   served from the same origin without leaking to cross-site pages.
+- The `/dsh-network/search` route (sidebar search panel backend) sits
+  behind the same fence and is additionally gated by the LIVE
+  `config.webSearchTool` toggle — flipping 网络 → 工具 → 网络搜索 off
+  answers 403 immediately and the `web_search` tool's next execute
+  throws, so one switch disables both the model-facing tool and the
+  user-facing panel without a reload.
 - The browser half (the "网络" settings section and the legacy card)
   reads/writes the live `config` object the host's `apply()` owns;
   there is deliberately NO `dsh-network` settings namespace — a

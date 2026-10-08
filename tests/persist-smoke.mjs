@@ -188,7 +188,7 @@ try {
   writeFileSync(configFile, JSON.stringify({ ...onDisk, enabled: false }), 'utf8')
   ;({ ctx, registrations } = makeFakeCtx())
   apply(ctx, ROW_CONFIG)
-  assert.equal(registrations.routes.length, 2, 'enabled:false in the file must be ignored — the plugin still applies (config + health routes)')
+  assert.equal(registrations.routes.length, 3, 'enabled:false in the file must be ignored — the plugin still applies (config + health + search routes)')
   assert.ok(registrations.routes.some((r) => r.path === '/dsh-network/health'), 'health route must be registered alongside the config route')
 
   // ───────────────────────── 6. integration: corrupt file falls back ─────────────────────────
@@ -315,6 +315,72 @@ try {
   assert.equal(toolUnknown.status, 'ok')
   assert.equal(toolUnknown.config.searchTimeoutMs, 17000, 'valid fields still go through')
   assert.equal('notAField' in toolUnknown.config, false, 'unknown fields must be dropped, not echoed back')
+
+  // ──────────────────── 10. integration: sidebar search route ────────────────────
+  // The sidebar "网络搜索" panel drives /dsh-network/search. The route must
+  // register, fence untrusted callers like the config route does, validate
+  // its inputs WITHOUT touching the network, honor the web_search
+  // kill-switch, and carry the engine chain through to the CLI invocation.
+  ;({ ctx, registrations } = makeFakeCtx())
+  apply(ctx, ROW_CONFIG)
+  const searchRoute = registrations.routes.find((r) => r.path === '/dsh-network/search')
+  assert.ok(searchRoute, 'search route must register alongside config + health')
+  assert.equal(registrations.routes.length, 3, 'config + health + search routes register')
+
+  // Untrusted (non-loopback Host) callers are fenced exactly like the
+  // config route — this must reject BEFORE any input parsing.
+  const untrusted = await routeCall(searchRoute, 'GET', { host: 'example.com:3080' })
+  assert.equal(untrusted.status, 403, 'non-loopback Host must be refused')
+
+  // Same-origin but missing query → 400 without any network I/O.
+  const noQuery = await routeCall(searchRoute, 'GET', { host: '127.0.0.1:3080' })
+  assert.equal(noQuery.status, 400, 'missing ?q must be a 400')
+
+  // Out-of-range count → 400.
+  const badCount = await routeCall(searchRoute, 'POST', { host: '127.0.0.1:3080' }, { query: 'x', count: 99 })
+  assert.equal(badCount.status, 400, 'count outside [1, 20] must be a 400')
+
+  // Wrong method → 405.
+  const badMethod = await routeCall(searchRoute, 'DELETE', { host: '127.0.0.1:3080' })
+  assert.equal(badMethod.status, 405, 'non-GET/POST must be a 405')
+
+  // The web_search kill-switch gates the route dynamically: flip it off via
+  // the config route (the exact path a settings save takes) and the search
+  // route must refuse searches even for trusted callers.
+  const configRouteForKill = findRoute(registrations)
+  const killPut = await routeCall(configRouteForKill, 'PUT', { host: '127.0.0.1:3080' }, { webSearchTool: false })
+  assert.equal(killPut.status, 200)
+  const killed = await routeCall(searchRoute, 'POST', { host: '127.0.0.1:3080' }, { query: 'x' })
+  assert.equal(killed.status, 403, 'the web_search kill-switch must gate the search route too')
+  assert.ok(/disabled/i.test(killed.body.error || ''), 'the refusal must say the tool is disabled')
+  // Flip it back on for good hygiene.
+  await routeCall(configRouteForKill, 'PUT', { host: '127.0.0.1:3080' }, { webSearchTool: true })
+
+  // The remaining tool toggles are live too: flipping one off makes the
+  // matching tool's NEXT execute fail fast BEFORE any network I/O, so the
+  // settings page's toggles actually do something between restarts.
+  const webFetchTool = registrations.tools.find((t) => t.name === 'web_fetch')
+  const httpRequestTool = registrations.tools.find((t) => t.name === 'http_request')
+  const webSitemapTool = registrations.tools.find((t) => t.name === 'web_sitemap')
+  assert.ok(webFetchTool && httpRequestTool && webSitemapTool, 'the three tools must be registered for the toggle checks')
+  const togglePut = await routeCall(configRouteForKill, 'PUT', { host: '127.0.0.1:3080' }, { webFetchTool: false, httpRequestTool: false, webSitemapTool: false })
+  assert.equal(togglePut.status, 200)
+  await assert.rejects(
+    () => webFetchTool.execute({ url: 'https://example.com/' }, { signal: undefined }),
+    /disabled by the network settings/,
+    'web_fetch must refuse while its toggle is off',
+  )
+  await assert.rejects(
+    () => httpRequestTool.execute({ url: 'https://example.com/' }, { signal: undefined }),
+    /disabled by the network settings/,
+    'http_request must refuse while its toggle is off',
+  )
+  await assert.rejects(
+    () => webSitemapTool.execute({ query: 'github' }, { signal: undefined }),
+    /disabled by the network settings/,
+    'web_sitemap must refuse while its toggle is off',
+  )
+  await routeCall(configRouteForKill, 'PUT', { host: '127.0.0.1:3080' }, { webFetchTool: true, httpRequestTool: true, webSitemapTool: true })
 
   console.log('persist-smoke: all assertions passed ✔')
   console.log(`persist file used: ${PERSIST_FILE}`)

@@ -57,6 +57,22 @@ let configSummary = {
 }
 const putCalls = []
 const healthCalls = []
+const searchCalls = []
+let searchFailure = null // { status, error } — set to exercise the error path
+const fakeSearchResult = {
+  query: 'dsh sidebar search',
+  status: 'ok',
+  engine: 'bing',
+  summary: '这是引擎摘要。',
+  items: [
+    { url: 'https://example.com/one', title: 'Example Result', snippet: 'example snippet', published_at: '2026-01-02' },
+    { url: 'https://example.org/two', title: 'Second Result', snippet: '' },
+  ],
+  uncertainty: ['仅单一引擎确认'],
+  warnings: ['bing 返回缓慢'],
+  attempts: [{ engine: 'bing', error: 'ok' }],
+  elapsedMs: 1234,
+}
 globalThis.fetch = (url, opts) => {
   const method = opts && opts.method ? opts.method : 'GET'
   if (String(url).endsWith('/dsh-network/health')) {
@@ -66,6 +82,19 @@ globalThis.fetch = (url, opts) => {
       status: 200,
       json: () => Promise.resolve({ ok: true, pid: 12345, uptimeMs: 1000, cache: { size: 0, totalChars: 0, hits: 0 } }),
     })
+  }
+  if (String(url).endsWith('/dsh-network/search')) {
+    // The panel POSTs { query, count, engine } as JSON.
+    searchCalls.push(method === 'POST' ? JSON.parse(opts.body) : null)
+    if (searchFailure) {
+      const failure = searchFailure
+      return Promise.resolve({
+        ok: false,
+        status: failure.status,
+        json: () => Promise.resolve({ error: failure.error }),
+      })
+    }
+    return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(fakeSearchResult) })
   }
   if (method === 'PUT') {
     const patch = JSON.parse(opts.body)
@@ -176,7 +205,16 @@ function collectText(node, out = []) {
 
 /** Find one element matching a predicate (depth-first). */
 function findNode(node, predicate) {
-  if (node === null || node === undefined || typeof node !== 'object' || Array.isArray(node)) return undefined
+  if (node === null || node === undefined || typeof node !== 'object') return undefined
+  // Array children (createElement(type, props, someMapResult)) are descended
+  // too, mirroring collectText/collectNodes.
+  if (Array.isArray(node)) {
+    for (const child of node) {
+      const found = findNode(child, predicate)
+      if (found !== undefined) return found
+    }
+    return undefined
+  }
   if (predicate(node)) return node
   for (const child of node.children || []) {
     const found = findNode(child, predicate)
@@ -187,7 +225,15 @@ function findNode(node, predicate) {
 
 /** Collect every element matching a predicate (depth-first). */
 function collectNodes(node, predicate, out = []) {
-  if (node === null || node === undefined || typeof node !== 'object' || Array.isArray(node)) return out
+  if (node === null || node === undefined || typeof node !== 'object') return out
+  // Children passed as a single array argument (createElement(type, props,
+  // someMapResult)) must be descended too — collectText already treats
+  // arrays that way, and the search panel's result cards are exactly such
+  // an array child.
+  if (Array.isArray(node)) {
+    for (const child of node) collectNodes(child, predicate, out)
+    return out
+  }
   if (predicate(node)) out.push(node)
   for (const child of node.children || []) collectNodes(child, predicate, out)
   return out
@@ -413,6 +459,110 @@ findNode(ownRow.render({ block: ownBlock }), (n) => n.type === 'button' && n.pro
 assert.ok(
   collectText(ownRow.render({ block: ownBlock })).join('\n').includes('excerpt'),
   'the plugin-own meta shape must fall back to the source list',
+)
+
+// ── 2c. the sidebar search panel registers behind the route probe ──
+// The panel contributes TWO registrations under one shared id: the rail icon
+// (sidebar.panellist) and the page it opens (layout `main`, keyed by the same
+// id) — the exact protocol the built-in plugins (order 0) and schedules
+// (order 10) panels use.
+const panelIconReg = registrations.find((r) => r.options.name === 'sidebar.panellist')
+assert.ok(panelIconReg, 'sidebar.panellist icon must register once the host route exists')
+assert.equal(panelIconReg.options.id, mod.__card.SEARCH_PANEL_ID, 'icon id must be the shared panel id')
+assert.equal(panelIconReg.options.order, 20, 'the panel sorts after plugins(0) and schedules(10)')
+assert.equal(panelIconReg.options.locale, 'dsh-network')
+assert.equal(typeof panelIconReg.options.label, 'function')
+assert.equal(panelIconReg.options.label(), '网络搜索', 'zh sidebar label must be 网络搜索')
+locale.active = 'en'
+assert.equal(panelIconReg.options.label(), 'Web Search', 'en sidebar label must be Web Search')
+locale.active = 'zh-CN'
+const panelIconEl = panelIconReg.component({ size: 18, active: false })
+assert.ok(panelIconEl, 'the rail icon must render an element at the requested size')
+const mainPanelReg = registrations.find((r) => r.options.name === 'main')
+assert.ok(mainPanelReg, 'layout main panel must register for the search page')
+assert.equal(mainPanelReg.options.key, mod.__card.SEARCH_PANEL_ID, 'the main key must match the sidebar id so selectPanel(id) opens the page')
+
+// ── 2d. the search page renders engine-style results ──
+const panelReact = createFakeReact()
+const SearchPanel = mod.__card.SearchPanelPage(panelReact, { Input: 'input' }, { current: { getSnapshot: () => ({ active: locale.active }) } })
+function renderPanel() {
+  panelReact._enterRender()
+  const tree = SearchPanel({})
+  panelReact._exitRender()
+  return { tree, effects: () => panelReact._runEffects() }
+}
+let pv = renderPanel()
+assert.ok(collectText(pv.tree).some((t) => t.includes('网络搜索')), 'panel header must name the panel')
+pv.effects() // mount effect: fetches the live engine chain from /dsh-network/config
+await flush()
+pv = renderPanel()
+const searchInput = findNode(pv.tree, (n) => n.type === 'input')
+assert.ok(searchInput, 'search page must render the query input')
+const engineSelect = findNode(pv.tree, (n) => n.type === 'select')
+assert.ok(engineSelect, 'search page must render the engine picker')
+searchInput.props.onChange({ target: { value: 'dsh sidebar search' } })
+pv = renderPanel()
+const searchForm = findNode(pv.tree, (n) => n.type === 'form')
+assert.ok(searchForm, 'search page must wrap the controls in a form')
+searchForm.props.onSubmit({ preventDefault() {} })
+await flush()
+pv = renderPanel()
+assert.equal(searchCalls.length, 1, 'submitting the form must POST /dsh-network/search once')
+assert.deepEqual(
+  searchCalls[0],
+  { query: 'dsh sidebar search', count: 10 },
+  'the POST body must carry the trimmed query, count, and (empty engine omitted)',
+)
+const panelText = collectText(pv.tree).join('\n')
+assert.ok(panelText.includes('Example Result'), 'the first hit title must render as a card')
+assert.ok(panelText.includes('example.com'), 'the first hit host must render')
+assert.ok(panelText.includes('example snippet'), 'the snippet must render')
+assert.ok(panelText.includes('2026-01-02'), 'the published date must render')
+assert.ok(panelText.includes('2 条结果'), 'the status line must count the hits')
+assert.ok(panelText.includes('bing'), 'the status line must name the answering engine')
+assert.ok(panelText.includes('1.2 秒'), 'the status line must report the elapsed time')
+assert.ok(panelText.includes('引擎摘要'), 'the engine summary must render')
+assert.ok(panelText.includes('警告: bing 返回缓慢'), 'warnings must render as notes')
+assert.ok(panelText.includes('不确定项: 仅单一引擎确认'), 'uncertainty must render as notes')
+const hitLinks = collectNodes(pv.tree, (n) => n.type === 'a' && n.props && String(n.props.href || '').startsWith('https://'))
+assert.ok(hitLinks.length >= 2, 'every hit must render as a link')
+assert.ok(hitLinks.every((n) => n.props.target === '_blank' && n.props.rel === 'noreferrer'), 'hit links must open in a new tab')
+
+// Recent-search chips rerun a query without retyping it.
+pv = renderPanel()
+const recentChip = findNode(pv.tree, (n) => n.type === 'button' && collectText(n).includes('dsh sidebar search') && n.props.type === 'button')
+assert.ok(recentChip, 'a recent-search chip must render after a successful search')
+searchCalls.length = 0
+recentChip.props.onClick()
+await flush()
+pv = renderPanel()
+assert.equal(searchCalls.length, 1, 'clicking a recent chip must re-run the query')
+
+// Failed searches render the error card with the failure detail.
+searchFailure = { status: 502, error: 'dsh-network could not reach the requested source (bing: timeout)' }
+searchCalls.length = 0
+const errInput = findNode(pv.tree, (n) => n.type === 'input')
+errInput.props.onChange({ target: { value: 'will fail' } })
+pv = renderPanel()
+findNode(pv.tree, (n) => n.type === 'form').props.onSubmit({ preventDefault() {} })
+await flush()
+pv = renderPanel()
+assert.equal(searchCalls[0].query, 'will fail', 'the failed attempt must still hit the route')
+assert.ok(collectText(pv.tree).join('\n').includes('搜索失败'), 'the error card must render')
+assert.ok(collectText(pv.tree).join('\n').includes('bing: timeout'), 'the engine error detail must surface')
+searchFailure = null
+
+// Panel state survives unmount/remount: the last result (not the typed
+// query) is restored from the module cache on the next mount.
+panelReact._unmount()
+pv = renderPanel()
+pv.effects()
+await flush()
+pv = renderPanel()
+const remountText = collectText(pv.tree).join('\n')
+assert.ok(
+  remountText.includes('Example Result') && remountText.includes('will fail') === false,
+  'after remount the last successful result set must persist, with no stale error',
 )
 
 // ── 3. the section page renders the config form ──

@@ -4,7 +4,7 @@ Let Deepseek Harness access the internet seamlessly.
 
 Works with `dsh: 0.1.0.rc1` or later.
 
-Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI over `undici`, parses PDF / Office / EPUB documents to Markdown via `officeparser`, and contributes `http_request`, a dedicated "网络" settings section, and web block renderers to the dsh web frontend. The host keeps **one** persistent `dsh-network server` child for its lifetime and pages oversized results via a server-side cache instead of truncating across the child-process boundary.
+Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loopback Node CLI over `undici`, parses PDF / Office / EPUB documents to Markdown via `officeparser`, and contributes `http_request`, a dedicated "网络" settings section, a sidebar web-search panel (search-engine-style UI over the same engine chain, backed by `/dsh-network/search`), and web block renderers to the dsh web frontend. The host keeps **one** persistent `dsh-network server` child for its lifetime and pages oversized results via a server-side cache instead of truncating across the child-process boundary.
 
 > **Note:** This plugin is not yet published to npm.
 
@@ -16,6 +16,10 @@ Replaces the official `tool-web` `web_search`/`web_fetch` with a long-lived loop
 - `web_config` — read the live dsh-network configuration, or apply a partial patch when the user has flipped the `allowConfigEdit` ("允许修改设置") safety toggle in **设置 → 网络 → 安全**. `get` always works; `set` returns a soft error and tells the user how to enable it while the toggle is off. The toggle itself is intentionally hidden from the model — it's not part of `get`'s response nor of the `set` patch schema — so a botched batched patch can never lock the model out of its own write path. Only the user, from the browser, can flip the toggle. Secrets (`githubToken`, per-engine API keys) are also filtered out of both the read and write paths.
 
 Search engines, timeouts, SSRF protection, and other knobs are configurable from **设置 → 网络** in the dsh web UI.
+
+### Sidebar web search (侧边栏网络搜索)
+
+The dsh web UI gains a **网络搜索** entry in the sidebar (after Plugins and Schedules). It opens a search-engine-style panel: one query box plus an engine picker that mirrors the live engine chain (or pin one engine) and a result-count selector. Results render as cards — title link opening in a new tab, host, snippet, published date — under the engines' summary answer, with warnings/uncertainty notes and per-engine attempt details. Recent queries stay one click away, and the last result set survives switching panels. The backend is the `GET|POST /dsh-network/search` route on the host webServer, fenced like `/dsh-network/config` and gated by the same `webSearchTool` toggle as the `web_search` tool.
 
 ## Architecture
 
@@ -136,7 +140,7 @@ The static seed is in `cordis.patch.yml`:
 
 Fields not listed here are defaulted by the host plugin and stay editable from **设置 → 网络**: the three protections (`ssrfProtection`, `redirectProtection`, `protocolLock`) default to **on**, `githubToken` starts empty, `githubIndexes` empty, `githubSort: "best"`, and per-engine API keys (`searchEngineApiKeys`) start empty.
 
-Live edits are made from **设置 → 网络**. The section reads `GET /dsh-network/config` and writes `PUT /dsh-network/config`; the host mutates the live config object, so policy fields take effect on the next tool call (the next `/invoke` body picks them up via `configToEnv`). Toggle switches (`enabled`, `webSearchTool`, `webFetchTool`, `httpRequestTool`, `webSitemapTool`) are read once at `apply()` — restart dsh after changing them.
+Live edits are made from **设置 → 网络**. The section reads `GET /dsh-network/config` and writes `PUT /dsh-network/config`; the host mutates the live config object, so policy fields take effect on the next tool call (the next `/invoke` body picks them up via `configToEnv`). The tool toggle switches (`webSearchTool`, `webFetchTool`, `httpRequestTool`, `webSitemapTool`) are applied live too: the matching tool's next call fails fast and the sidebar search route answers 403 while `webSearchTool` is off — restarting dsh fully unregisters disabled tools. `enabled` stays row-config-only.
 
 UI edits are persisted to `~/.dsh/dsh-network.json` (atomic write; `DSH_NETWORK_CONFIG_FILE` overrides the path). The persisted snapshot wins over the cordis row config. Delete the file to reset. `enabled` is never persisted; the cordis row remains the kill-switch.
 

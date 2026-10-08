@@ -1,6 +1,6 @@
 /* dsh-web browser half for dsh-network.
  *
- * Three things live here, all contributed through dsh's lazy-CJS slot registry:
+ * Four things live here, all contributed through dsh's lazy-CJS slot registry:
  *
  *   1. **Dedicated settings section (`settings.section`, nav "网络")** — the
  *      primary configuration surface, modelled on dsh's default settings
@@ -14,14 +14,24 @@
  *      (`/dsh-network/config`) and edits the same live config object the CLI
  *      reads.
  *
- *   2. **Settings card (`settings.plugin.item` slot)** — the legacy
+ *   2. **Sidebar search panel (`sidebar.panellist` + layout `main`)** — a
+ *      search-engine-style page behind a rail entry: one search box, an
+ *      engine picker mirroring the live engine chain, and hits rendered as
+ *      result cards (title link, host, snippet, date) under the engines'
+ *      summary. It drives the host's `/dsh-network/search` route — the same
+ *      engine chain the web_search tool uses — and only mounts after the
+ *      route probe proves the host plugin is present (and the web_search
+ *      tool is not switched off). Panel state survives unmounts so peeking
+ *      at the conversation never loses results.
+ *
+ *   3. **Settings card (`settings.plugin.item` slot)** — the legacy
  *      Plugins-tab card, kept for deployments that serve the `dsh-network`
  *      namespace (the tab dispatches cards only for namespaces the Host
  *      serves; this plugin intentionally does not register one, so the card
  *      stays dormant in the stock web profile). It reuses the same
  *      per-section renderers so the two surfaces stay in sync.
  *
- *   3. **Search card renderer** (`tool.call.toolview`, key `web_search`) —
+ *   4. **Search card renderer** (`tool.call.toolview`, key `web_search`) —
  *      the card system current dsh builds ship. dsh's tool-web merges every
  *      query of one call into a single capped, round-robin source list under
  *      per-query headings, which reads badly (empty headings, an interleaved
@@ -192,6 +202,26 @@ window.__ModuleLoader__.load({
         searchToolRunning: '搜索中…',
         searchToolTruncated: '结果已按上限截断',
         searchToolNoResults: '未找到结果',
+        // ── sidebar search panel ──
+        searchPanel: '网络搜索',
+        searchPanelSubtitle: '在侧边栏直接搜索公共网络，走与 web_search 相同的引擎链。',
+        searchPanelPlaceholder: '输入搜索内容…',
+        searchPanelGo: '搜索',
+        searchPanelEngineAll: '全部引擎',
+        searchPanelCountLabel: '结果数',
+        searchPanelEmptyHint: '输入内容开始搜索，例如「typescript 5.9 release notes」。',
+        searchPanelSummary: '摘要',
+        searchPanelResultsUnit: '条结果',
+        searchPanelElapsed: '耗时',
+        searchPanelSecond: '秒',
+        searchPanelUncertain: '不确定项',
+        searchPanelWarning: '警告',
+        searchPanelAttempts: '引擎尝试详情',
+        searchPanelFailed: '搜索失败',
+        searchPanelOpenNew: '在新标签页打开',
+        searchPanelRecent: '最近',
+        searchPanelStatusOk: '正常',
+        searchPanelStatusDegraded: '降级',
       },
       en: {
         nav: 'Network',
@@ -298,6 +328,26 @@ window.__ModuleLoader__.load({
         searchToolRunning: 'Searching…',
         searchToolTruncated: 'Results were capped',
         searchToolNoResults: 'No results found',
+        // ── sidebar search panel ──
+        searchPanel: 'Web Search',
+        searchPanelSubtitle: 'Search the public web right from the sidebar, on the same engine chain as web_search.',
+        searchPanelPlaceholder: 'Type a query…',
+        searchPanelGo: 'Search',
+        searchPanelEngineAll: 'All engines',
+        searchPanelCountLabel: 'Results',
+        searchPanelEmptyHint: 'Type a query to start searching, e.g. "typescript 5.9 release notes".',
+        searchPanelSummary: 'Summary',
+        searchPanelResultsUnit: 'results',
+        searchPanelElapsed: 'took',
+        searchPanelSecond: 's',
+        searchPanelUncertain: 'Uncertain',
+        searchPanelWarning: 'Warning',
+        searchPanelAttempts: 'Engine attempts',
+        searchPanelFailed: 'Search failed',
+        searchPanelOpenNew: 'Open in new tab',
+        searchPanelRecent: 'Recent',
+        searchPanelStatusOk: 'OK',
+        searchPanelStatusDegraded: 'Degraded',
       },
     }
 
@@ -554,6 +604,137 @@ window.__ModuleLoader__.load({
         marginTop: '6px', padding: '8px 4px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         fontSize: '12px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      // ── sidebar search panel (layout `main` page) ──
+      // Geometry mirrors ui-plugin-manager's page (`.page`): a full-height
+      // centered column whose children cap at 960px.
+      searchPage: {
+        boxSizing: 'border-box', height: '100%', width: '100%',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        gap: '20px', padding: '0 clamp(24px, 4vw, 48px) 48px',
+        overflowY: 'auto', overflowX: 'hidden',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+      },
+      searchChild: { width: '100%', maxWidth: '960px', flex: 'none' },
+      searchHead: { paddingTop: '28px', display: 'flex', flexDirection: 'column', gap: '4px' },
+      searchTitle: { margin: '0', fontSize: '20px', fontWeight: 500, lineHeight: '28px' },
+      searchIntro: {
+        margin: '0', fontSize: '13px', lineHeight: '20px',
+        color: 'var(--dsw-alias-label-secondary, rgba(127,127,127,0.9))',
+      },
+      searchBar: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' },
+      searchInput: {
+        flex: '1 1 240px', minWidth: '160px',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+        height: '36px', font: 'inherit', fontSize: '13px',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+        borderRadius: '10px', padding: '0 12px', outline: 'none',
+      },
+      searchSelect: {
+        flex: 'none',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+        height: '36px', font: 'inherit', fontSize: '13px',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+        borderRadius: '10px', padding: '0 8px', outline: 'none', cursor: 'pointer',
+      },
+      searchRunBtn: {
+        appearance: 'none', flex: 'none', cursor: 'pointer',
+        border: '1px solid transparent',
+        background: 'var(--dsw-alias-brand-primary, #2563eb)',
+        color: '#fff', font: 'inherit', fontSize: '13px', fontWeight: 600,
+        height: '36px', padding: '0 16px', borderRadius: '10px',
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+      },
+      searchRunBtnDisabled: { opacity: 0.5, cursor: 'not-allowed' },
+      searchRecent: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' },
+      searchRecentLabel: {
+        flex: 'none', fontSize: '12px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      searchRecentChip: {
+        appearance: 'none', cursor: 'pointer', font: 'inherit', fontSize: '12px',
+        color: 'var(--dsw-alias-label-secondary, inherit)', maxWidth: '260px',
+        textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap',
+        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+        borderRadius: '999px', padding: '2px 10px', lineHeight: '18px',
+      },
+      searchStatus: {
+        display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+        fontSize: '12px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      searchResultsList: { display: 'flex', flexDirection: 'column' },
+      searchResult: {
+        display: 'flex', flexDirection: 'column', gap: '2px',
+        padding: '12px 2px',
+        borderBottom: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.22))',
+      },
+      searchResultLast: { borderBottom: 'none' },
+      searchResultTitle: {
+        color: 'var(--dsw-alias-link, #2563eb)', fontSize: '15px',
+        fontWeight: 500, lineHeight: '22px', textDecoration: 'none',
+        wordBreak: 'break-word', cursor: 'pointer',
+      },
+      searchResultMeta: {
+        display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap',
+        fontSize: '12px', lineHeight: '18px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      searchResultHost: { color: 'var(--dsw-alias-label-secondary, rgba(127,127,127,0.9))' },
+      searchResultSnippet: {
+        fontSize: '13px', lineHeight: '20px', margin: '2px 0 0',
+        color: 'var(--dsw-alias-label-secondary, rgba(127,127,127,0.9))',
+        overflowWrap: 'anywhere',
+      },
+      searchSummary: {
+        border: '1px solid var(--dsw-alias-border-l2, rgba(127,127,127,0.35))',
+        background: 'var(--dsw-alias-bg-layer-3, rgba(127,127,127,0.05))',
+        borderRadius: '12px', padding: '12px 16px',
+        display: 'flex', flexDirection: 'column', gap: '6px',
+      },
+      searchSummaryLabel: {
+        fontSize: '12px', fontWeight: 600, letterSpacing: '0.2px',
+        color: 'var(--dsw-alias-label-secondary, inherit)',
+        display: 'inline-flex', alignItems: 'center', gap: '6px',
+      },
+      searchNote: {
+        display: 'flex', alignItems: 'flex-start', gap: '6px',
+        fontSize: '12px', lineHeight: '18px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+        overflowWrap: 'anywhere',
+      },
+      searchAttempts: {
+        fontSize: '12px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      searchAttemptsPre: {
+        margin: '6px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere',
+        font: 'inherit', fontSize: '11px', lineHeight: '16px',
+      },
+      searchError: {
+        border: '1px solid var(--dsw-alias-state-error-primary, #dc2626)',
+        background: 'rgba(239, 68, 68, 0.08)',
+        borderRadius: '12px', padding: '12px 16px',
+        display: 'flex', flexDirection: 'column', gap: '4px',
+      },
+      searchErrorTitle: {
+        fontSize: '13px', fontWeight: 600,
+        color: 'var(--dsw-alias-state-error-primary, #dc2626)',
+      },
+      searchErrorDetail: {
+        fontSize: '12px', lineHeight: '18px', margin: 0,
+        color: 'var(--dsw-alias-label-secondary, inherit)', overflowWrap: 'anywhere',
+      },
+      searchEmpty: {
+        padding: '24px 0', fontSize: '13px',
+        color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
+      },
+      searchRunning: {
+        display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px',
         color: 'var(--dsw-alias-label-tertiary, rgba(127,127,127,0.8))',
       },
     }
@@ -2246,6 +2427,349 @@ window.__ModuleLoader__.load({
       }
     }
 
+    // ────────────────────── sidebar search panel ──────────────────────
+    // A full `main` panel behind a `sidebar.panellist` entry — the same
+    // two-registration protocol the built-in plugins (order 0) and schedules
+    // (order 10) panels use. The page is a search-engine-style front end over
+    // the host's `/dsh-network/search` route: one POST runs the same engine
+    // chain the web_search tool uses on the persistent loopback server, and
+    // the hits render as result cards (title link, host, snippet, date) under
+    // the engines' summary answer.
+    var SEARCH_PANEL_ID = 'dsh-network-search'
+
+    /** Panel state that outlives the component: switching to another sidebar
+     *  entry unmounts this page, and without this cache the results (and the
+     *  typed query) would vanish the moment the user peeked at the
+     *  conversation. History keeps the last 8 queries for one-click reruns. */
+    var searchPanelCache = { query: '', engine: '', count: 10, data: null, history: [] }
+
+    function hostOfUrl(url) {
+      try { return new URL(String(url)).host } catch (error) { return String(url || '') }
+    }
+
+    function formatElapsedSeconds(ms) {
+      var seconds = Number(ms) / 1000
+      if (!isFinite(seconds) || seconds < 0) return ''
+      return String(seconds >= 10 ? Math.round(seconds) : Math.round(seconds * 10) / 10)
+    }
+
+    /** The sidebar rail glyph. Falls back to an inline magnifier when the
+     *  host primitives build does not export IconSearchOutlineRegular. */
+    function SearchPanelIcon(react, ui) {
+      var IconSearch = ui && ui.IconSearchOutlineRegular ? ui.IconSearchOutlineRegular : null
+      return function SearchPanelIconComponent(props) {
+        var size = props && typeof props.size === 'number' ? props.size : 18
+        if (IconSearch) return react.createElement(IconSearch, { size: size })
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24', width: size, height: size,
+          'aria-hidden': true, style: { display: 'block', flex: 'none' },
+        },
+          react.createElement('circle', { cx: 11, cy: 11, r: 7, fill: 'none', stroke: 'currentColor', strokeWidth: 1.8 }),
+          react.createElement('line', {
+            x1: 16.2, y1: 16.2, x2: 21, y2: 21,
+            stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round',
+          }),
+        )
+      }
+    }
+
+    function SearchPanelPage(react, ui, localeRef) {
+      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
+      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var IconGlobe = ui && ui.IconGlobeOutlineRegular ? ui.IconGlobeOutlineRegular : null
+      var IconWarning = ui && ui.IconWarningOutlineRegular ? ui.IconWarningOutlineRegular : null
+      var IconSearch = ui && ui.IconSearchOutlineRegular ? ui.IconSearchOutlineRegular : null
+
+      var magnifier = function (size) {
+        return IconSearch
+          ? react.createElement(IconSearch, { size: size })
+          : react.createElement('svg', {
+            viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': true,
+          },
+            react.createElement('circle', { cx: 11, cy: 11, r: 7, fill: 'none', stroke: 'currentColor', strokeWidth: 2 }),
+            react.createElement('line', { x1: 16.2, y1: 16.2, x2: 21, y2: 21, stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round' }))
+      }
+
+      return function SearchPanel() {
+        var t = labelText(localeRef, '')
+
+        // Hook order is flat and unconditional: the fake React in the smoke
+        // test (and real React's dev-mode hook check) both reject branches
+        // that appear between renders.
+        var queryState = react.useState(searchPanelCache.query)
+        var query = queryState[0]
+        var setQuery = queryState[1]
+        var engineState = react.useState(searchPanelCache.engine || '')
+        var engine = engineState[0]
+        var setEngine = engineState[1]
+        var countState = react.useState(searchPanelCache.count || 10)
+        var count = countState[0]
+        var setCount = countState[1]
+        var busyState = react.useState(false)
+        var busy = busyState[0]
+        var setBusy = busyState[1]
+        var errorState = react.useState(null)
+        var error = errorState[0]
+        var setError = errorState[1]
+        var resultState = react.useState(searchPanelCache.data)
+        var result = resultState[0]
+        var setResult = resultState[1]
+        var historyState = react.useState(searchPanelCache.history.slice())
+        var history = historyState[0]
+        var setHistory = historyState[1]
+        var enginesState = react.useState(null)
+        var engines = enginesState[0]
+        var setEngines = enginesState[1]
+        var mountedRef = react.useRef(true)
+
+        react.useEffect(function () {
+          mountedRef.current = true
+          var cancelled = false
+          // The engine picker mirrors the LIVE engine chain; if the config
+          // route is unavailable the static ENGINES list still populates it.
+          fetchConfig().then(function (body) {
+            if (cancelled) return
+            var list = body && body.value && Array.isArray(body.value.searchEngines)
+              ? body.value.searchEngines.filter(function (id) { return typeof id === 'string' && id !== '' })
+              : []
+            if (list.length > 0) setEngines(list)
+          }).catch(function () { /* static list fallback */ })
+          return function () {
+            cancelled = true
+            mountedRef.current = false
+          }
+        }, [])
+
+        var runSearch = function (overrideQuery) {
+          var q = String(typeof overrideQuery === 'string' ? overrideQuery : query || '').trim()
+          if (q === '' || busy) return
+          setBusy(true)
+          setError(null)
+          var payload = { query: q, count: count }
+          if (engine !== '') payload.engine = engine
+          var opts = {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          }
+          fetch('/dsh-network/search', opts).then(function (response) {
+            return response.json().then(function (body) {
+              return { ok: response.ok, status: response.status, body: body }
+            })
+          }).then(function (reply) {
+            if (!reply.ok) {
+              var detail = reply.body && reply.body.error ? reply.body.error : 'HTTP ' + reply.status
+              var failure = new Error(detail)
+              failure.attempts = reply.body && Array.isArray(reply.body.attempts) ? reply.body.attempts : []
+              throw failure
+            }
+            searchPanelCache.query = q
+            searchPanelCache.engine = engine
+            searchPanelCache.count = count
+            searchPanelCache.data = reply.body
+            searchPanelCache.history = [q]
+              .concat(searchPanelCache.history.filter(function (item) { return item !== q }))
+              .slice(0, 8)
+            if (mountedRef.current) {
+              setResult(reply.body)
+              setHistory(searchPanelCache.history.slice())
+              setBusy(false)
+            }
+          }).catch(function (err) {
+            if (!mountedRef.current) return
+            setError({
+              message: noteFrom(err, t.searchPanelFailed),
+              attempts: err && Array.isArray(err.attempts) ? err.attempts : [],
+            })
+            setBusy(false)
+          })
+        }
+
+        var engineOptions = (engines && engines.length > 0 ? engines : ENGINES)
+        var items = result && Array.isArray(result.items) ? result.items : []
+        var summary = result && typeof result.summary === 'string' ? result.summary.trim() : ''
+        var uncertainty = result && Array.isArray(result.uncertainty) ? result.uncertainty : []
+        var warnings = result && Array.isArray(result.warnings) ? result.warnings : []
+        var attempts = (result && Array.isArray(result.attempts) ? result.attempts : [])
+          .concat(error && Array.isArray(error.attempts) ? error.attempts : [])
+
+        // Result cards: search-engine rhythm — title link, host + date line,
+        // snippet. A missing title degrades to the bare URL.
+        var resultCards = items.map(function (item, index) {
+          var url = item && typeof item.url === 'string' ? item.url : ''
+          if (url === '') return null
+          var title = item && typeof item.title === 'string' && item.title !== '' ? item.title : url
+          var date = item && typeof item.published_at === 'string' ? item.published_at : ''
+          var snippet = item && typeof item.snippet === 'string' ? item.snippet : ''
+          return react.createElement('div', {
+            key: 'hit' + index,
+            style: index === items.length - 1 ? STYLES.searchResultLast : STYLES.searchResult,
+          },
+            react.createElement('a', {
+              href: url, target: '_blank', rel: 'noreferrer',
+              style: STYLES.searchResultTitle, title: t.searchPanelOpenNew,
+            }, title),
+            react.createElement('div', { style: STYLES.searchResultMeta },
+              react.createElement('span', { style: STYLES.searchResultHost }, hostOfUrl(url)),
+              date !== '' ? react.createElement('span', null, date) : null,
+            ),
+            snippet !== '' ? react.createElement('div', { style: STYLES.searchResultSnippet }, snippet) : null,
+          )
+        })
+
+        var statusBits = []
+        if (items.length > 0) statusBits.push(String(items.length) + ' ' + t.searchPanelResultsUnit)
+        if (result && result.engine) statusBits.push(ENGINE_LABELS[result.engine] || String(result.engine))
+        if (result && typeof result.elapsedMs === 'number') {
+          statusBits.push(t.searchPanelElapsed + ' ' + formatElapsedSeconds(result.elapsedMs) + ' ' + t.searchPanelSecond)
+        }
+        var statusLine = statusBits.join(' · ')
+        var degraded = !!(result && result.status === 'degraded')
+
+        var noteRows = []
+        warnings.forEach(function (w, i) {
+          if (typeof w !== 'string' || w === '') return
+          noteRows.push(react.createElement('div', { key: 'warn' + i, style: STYLES.searchNote },
+            IconWarning ? react.createElement(IconWarning, { size: 12 }) : null,
+            react.createElement('span', null, t.searchPanelWarning + ': ' + w)))
+        })
+        uncertainty.forEach(function (u, i) {
+          if (typeof u !== 'string' || u === '') return
+          noteRows.push(react.createElement('div', { key: 'unc' + i, style: STYLES.searchNote },
+            null,
+            react.createElement('span', null, t.searchPanelUncertain + ': ' + u)))
+        })
+
+        var head = react.createElement('header', { style: STYLES.searchHead },
+          react.createElement('h1', { style: STYLES.searchTitle }, t.searchPanel),
+          react.createElement('p', { style: STYLES.searchIntro }, t.searchPanelSubtitle),
+        )
+
+        var form = react.createElement('form', {
+          style: STYLES.searchBar,
+          onSubmit: function (event) { event.preventDefault(); runSearch() },
+        },
+          react.createElement('input', {
+            style: STYLES.searchInput,
+            value: query,
+            placeholder: t.searchPanelPlaceholder,
+            autoFocus: true,
+            onChange: function (event) { setQuery(event.target.value) },
+          }),
+          react.createElement('select', {
+            style: STYLES.searchSelect,
+            value: engine,
+            title: t.searchPanelEngineAll,
+            onChange: function (event) { setEngine(event.target.value) },
+          },
+            react.createElement('option', { value: '' }, t.searchPanelEngineAll),
+            engineOptions.map(function (id) {
+              return react.createElement('option', { key: id, value: id }, ENGINE_LABELS[id] || id)
+            }),
+          ),
+          react.createElement('select', {
+            style: STYLES.searchSelect,
+            value: String(count),
+            title: t.searchPanelCountLabel,
+            onChange: function (event) { setCount(Number(event.target.value) || 10) },
+          },
+            [5, 10, 15, 20].map(function (n) {
+              return react.createElement('option', { key: n, value: String(n) }, String(n))
+            }),
+          ),
+          react.createElement('button', {
+            type: 'submit',
+            style: busy
+              ? Object.assign({}, STYLES.searchRunBtn, STYLES.searchRunBtnDisabled)
+              : STYLES.searchRunBtn,
+            disabled: busy,
+          },
+            magnifier(14),
+            t.searchPanelGo,
+          ),
+        )
+
+        var recentRow = history.length > 0
+          ? react.createElement('div', { style: STYLES.searchRecent },
+            react.createElement('span', { style: STYLES.searchRecentLabel }, t.searchPanelRecent),
+            history.map(function (q, i) {
+              return react.createElement('button', {
+                key: 'recent' + i, type: 'button', title: q,
+                style: STYLES.searchRecentChip,
+                onClick: function () { runSearch(q) },
+              }, q)
+            }))
+          : null
+
+        var runningRow = busy
+          ? react.createElement('div', { style: STYLES.searchRunning, 'aria-live': 'polite' },
+            TextShimmer
+              ? react.createElement(TextShimmer, { active: true }, t.searchToolRunning)
+              : t.searchToolRunning)
+          : null
+
+        var errorCard = error
+          ? react.createElement('div', { style: STYLES.searchError, role: 'alert' },
+            react.createElement('div', { style: STYLES.searchErrorTitle }, t.searchPanelFailed),
+            react.createElement('pre', { style: STYLES.searchErrorDetail }, error.message))
+          : null
+
+        var emptyHint = !busy && !error && !result
+          ? react.createElement('div', { style: STYLES.searchEmpty }, t.searchPanelEmptyHint)
+          : null
+
+        var summaryCard = summary === ''
+          ? null
+          : react.createElement('div', { style: STYLES.searchSummary },
+            react.createElement('span', { style: STYLES.searchSummaryLabel },
+              IconGlobe ? react.createElement(IconGlobe, { size: 12 }) : null,
+              t.searchPanelSummary),
+            MarkdownText
+              ? react.createElement(MarkdownText, { text: summary })
+              : react.createElement('div', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, summary))
+
+        var attemptsBlock = attempts.length > 0
+          ? react.createElement('details', { style: STYLES.searchAttempts },
+            react.createElement('summary', null, t.searchPanelAttempts + ' (' + attempts.length + ')'),
+            react.createElement('pre', { style: STYLES.searchAttemptsPre },
+              attempts.map(function (a) {
+                return ((a && a.engine) || 'engine') + ': ' + ((a && a.error) || 'ok')
+              }).join('\n')))
+          : null
+
+        var resultArea = result
+          ? [
+            react.createElement('div', { key: 'status', style: STYLES.searchStatus },
+              statusLine !== '' ? react.createElement('span', null, statusLine) : null,
+              degraded || warnings.length > 0
+                ? react.createElement('span', {
+                  style: Object.assign({}, STYLES.fieldBadgeMuted),
+                  'data-tone': 'warn',
+                }, t.searchPanelStatusDegraded)
+                : null,
+            ),
+            summaryCard ? react.createElement('div', { key: 'summary' }, summaryCard) : null,
+            resultCards.length > 0
+              ? react.createElement('div', { key: 'hits', style: STYLES.searchResultsList }, resultCards)
+              : react.createElement('div', { key: 'nohits', style: STYLES.searchEmpty }, t.searchToolNoResults),
+            noteRows.length > 0 ? react.createElement('div', { key: 'notes' }, noteRows) : null,
+            attemptsBlock ? react.createElement('div', { key: 'attempts' }, attemptsBlock) : null,
+          ]
+          : null
+
+        var pageChild = function (style) { return Object.assign({}, STYLES.searchChild, style) }
+
+        return react.createElement('section', { style: STYLES.searchPage, 'aria-busy': busy },
+          head,
+          react.createElement('div', { style: pageChild(null) }, form, recentRow),
+          runningRow ? react.createElement('div', { style: pageChild(null) }, runningRow) : null,
+          errorCard ? react.createElement('div', { style: pageChild(null) }, errorCard) : null,
+          emptyHint ? react.createElement('div', { style: pageChild(null) }, emptyHint) : null,
+          resultArea ? react.createElement('div', { style: pageChild({ display: 'flex', flexDirection: 'column', gap: '16px' }) }, resultArea) : null,
+        )
+      }
+    }
+
     // ────────────────────── slot registration ──────────────────────
     function tryRequire(spec) {
       try { return require(spec) } catch (e) {
@@ -2355,8 +2879,55 @@ window.__ModuleLoader__.load({
         // or someone disabled the settings route), stay silent on the
         // Plugins-tab card and the block renderers.
         fetch('/dsh-network/config').then(function (response) {
-          if (response.status === 404) return
+          if (response.status === 404) return { found: false, value: null }
+          // Read the summary once: it gates the search panel (the panel's
+          // backend route follows the web_search tool's kill-switch) while
+          // the card below registers regardless. An unreadable summary must
+          // NOT hide the card — only the panel needs the live value.
+          return response.json().then(function (body) {
+            return { found: true, value: body && body.value ? body.value : null }
+          }).catch(function () { return { found: true, value: null } })
+        }).then(function (probe) {
+          if (!probe || !probe.found) return
           try {
+            // ── sidebar "网络搜索" panel ──
+            // sidebar.panellist (rail icon row) + layout `main` (the page the
+            // id opens) — the exact protocol the built-in plugins (order 0)
+            // and schedules (order 10) panels use. The panel drives the
+            // host's /dsh-network/search route, so it mounts only when the
+            // host plugin is present and the web_search tool is not switched
+            // off in 网络 → 工具. A failed registration must never take the
+            // rest of the plugin half down, hence the per-slot try/catch.
+            if (!probe.value || probe.value.webSearchTool !== false) {
+              var PanelIcon = SearchPanelIcon(react, ui)
+              var SearchPanel = SearchPanelPage(react, ui, localeRef)
+              scope.slots.inject('sidebar.panellist', function* () {
+                try {
+                  yield scope.slots.register({
+                    name: 'sidebar.panellist',
+                    id: SEARCH_PANEL_ID,
+                    order: 20, // plugins(0) · schedules(10) · 搜索(20)
+                    label: function () { return labelText(localeRef, 'en').searchPanel },
+                    locale: 'dsh-network',
+                  }, PanelIcon)
+                } catch (error) {
+                  console.error('[dsh-network] sidebar panel icon not registered:', error)
+                }
+              })
+              scope.slots.inject('main', function* () {
+                try {
+                  yield scope.slots.register({
+                    name: 'main',
+                    id: SEARCH_PANEL_ID,
+                    key: SEARCH_PANEL_ID,
+                    locale: 'dsh-network',
+                  }, SearchPanel)
+                } catch (error) {
+                  console.error('[dsh-network] search panel not registered:', error)
+                }
+              })
+            }
+
             var Card = ConfigCard(react, ui, localeRef)
             scope.slots.inject('settings.plugin.item', function* () {
               yield scope.slots.register(
@@ -2411,7 +2982,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply
     // Exposed for tests only; not part of the plugin contract.
-    exports.__card = { ConfigCard: ConfigCard, Renderer: Renderer, FetchBlockRenderer: FetchBlockRenderer, SearchToolview: SearchToolview, NetworkSection: NetworkSection, RenderNetworkPage: RenderNetworkPage, EngineDialog: EngineDialog, AddEngineDialog: AddEngineDialog }
+    exports.__card = { ConfigCard: ConfigCard, Renderer: Renderer, FetchBlockRenderer: FetchBlockRenderer, SearchToolview: SearchToolview, NetworkSection: NetworkSection, RenderNetworkPage: RenderNetworkPage, EngineDialog: EngineDialog, AddEngineDialog: AddEngineDialog, SearchPanelPage: SearchPanelPage, SearchPanelIcon: SearchPanelIcon, SEARCH_PANEL_ID: SEARCH_PANEL_ID }
     // Slots are optional; never declare them as a hard inject.
     exports.inject = []
     return module.exports

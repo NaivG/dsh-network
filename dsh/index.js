@@ -746,6 +746,12 @@ function registerWebSearchTool(ctx, config) {
       }
     },
     async execute(args, exec) {
+      // The 网络 → 工具 toggle is read LIVE: flipping it off in the settings
+      // page disables both the model-facing tool and the sidebar search
+      // panel's backend route (registerSearchRoute) on the next call.
+      if (config.webSearchTool === false) {
+        throw new Error('web_search is disabled by the network settings (网络 → 工具)')
+      }
       const query = String(args.query || '').trim()
       if (!query) throw new Error('web_search: query must be a non-empty string')
       const count = args.count === undefined ? 10 : Number(args.count)
@@ -857,6 +863,12 @@ function registerWebFetchTool(ctx, config) {
       }
     },
     async execute(args, exec) {
+      // The 网络 → 工具 toggle is read LIVE (see the matching guard in the
+      // web_search tool): flipping it off fails fast instead of silently
+      // running a tool the user switched off.
+      if (config.webFetchTool === false) {
+        throw new Error('web_fetch is disabled by the network settings (网络 → 工具)')
+      }
       const url = String(args.url || '').trim()
       const cacheId = typeof args.cacheId === 'string' ? args.cacheId.trim() : ''
       if ((url === '') === (cacheId === '')) {
@@ -1011,6 +1023,9 @@ function registerHttpRequestTool(ctx, config) {
       }
     },
     async execute(args, exec) {
+      if (config.httpRequestTool === false) {
+        throw new Error('http_request is disabled by the network settings (网络 → 工具)')
+      }
       const url = String(args.url || '').trim()
       const cacheId = typeof args.cacheId === 'string' ? args.cacheId.trim() : ''
       if ((url === '') === (cacheId === '')) {
@@ -1371,6 +1386,9 @@ function registerWebSitemapTool(ctx, config) {
     },
     async execute(args, exec) {
       const cliArgs = ['web_sitemap']
+      if (config.webSitemapTool === false) {
+        throw new Error('web_sitemap is disabled by the network settings (网络 → 工具)')
+      }
       const query = typeof args.query === 'string' ? args.query.trim() : ''
       const domain = typeof args.domain === 'string' ? args.domain.trim().toLowerCase() : ''
       const category = typeof args.category === 'string' ? args.category.trim() : ''
@@ -1554,6 +1572,121 @@ function registerHealthRoute(ctx) {
   })
 }
 
+/**
+ * Browser-reachable search endpoint backing the sidebar "网络搜索" panel
+ * (dsh/client.js). The panel POSTs `{ query, count, engine }` (GET `?q=` is
+ * also accepted for shareable links) and this route runs the same CLI search
+ * path the web_search tool uses — one job on the persistent loopback server
+ * with the LIVE config (engine chain, SearXNG endpoint, timeouts), so UI
+ * edits take effect on the next search without a plugin reload.
+ *
+ * Fenced exactly like `/dsh-network/config`: loopback Host header +
+ * same-origin (Origin == Host, `sec-fetch-site: cross-site` rejected).
+ * The gate is dynamic: with the web_search tool disabled
+ * (`config.webSearchTool === false`) the route answers 403, so the
+ * settings kill-switch also removes the panel's backend in real time.
+ */
+function registerSearchRoute(ctx, config) {
+  if (typeof ctx.inject !== 'function') return
+  ctx.inject(['webServer'], (scope) => {
+    try {
+      scope.webServer.register({
+        name: 'dsh-network-search',
+        kind: 'exact',
+        path: '/dsh-network/search',
+        handler: async (req, res) => {
+          const send = (status, body) => {
+            res.writeHead(status, { 'content-type': 'application/json' })
+            res.end(JSON.stringify(body))
+          }
+          if (!isTrustedRequest(req)) {
+            send(403, { error: 'request refused: this route answers same-origin loopback only' })
+            return
+          }
+          if (req.method !== 'GET' && req.method !== 'POST') {
+            res.writeHead(405).end()
+            return
+          }
+          if (config.webSearchTool === false) {
+            send(403, { error: 'web_search tool is disabled (网络 → 工具)' })
+            return
+          }
+          let query = ''
+          let rawCount
+          let engine = ''
+          try {
+            if (req.method === 'GET') {
+              const url = new URL(req.url ?? '/dsh-network/search', 'http://loopback.invalid')
+              query = String(url.searchParams.get('q') ?? url.searchParams.get('query') ?? '').trim()
+              rawCount = url.searchParams.get('count')
+              engine = String(url.searchParams.get('engine') ?? '').trim()
+            } else {
+              // POST carries the query as JSON so long CJK queries never hit
+              // URL length limits. 16 KB is generous for a search string.
+              const chunks = []
+              let total = 0
+              for await (const chunk of req) {
+                total += chunk.length
+                if (total > 16 * 1024) {
+                  send(413, { error: 'search payload too large' })
+                  req.destroy()
+                  return
+                }
+                chunks.push(chunk)
+              }
+              const body = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString('utf8')) : {}
+              if (!body || typeof body !== 'object') throw new Error('body must be a JSON object')
+              query = String(body.query ?? body.q ?? '').trim()
+              rawCount = body.count
+              engine = typeof body.engine === 'string' ? body.engine.trim() : ''
+            }
+          } catch (error) {
+            send(400, { error: 'invalid search request: ' + String(error && error.message ? error.message : error) })
+            return
+          }
+          if (query === '') {
+            send(400, { error: 'missing search query (?q= or {"query": …})' })
+            return
+          }
+          const count = rawCount === undefined || rawCount === null || rawCount === '' ? 10 : Number(rawCount)
+          if (!Number.isInteger(count) || count < 1 || count > 20) {
+            send(400, { error: 'count must be an integer in [1, 20]' })
+            return
+          }
+          const cliArgs = ['search', '-q', query, '--max-results', String(count), '-t', '55000']
+          if (engine !== '') cliArgs.push('--engine', engine.toLowerCase())
+          const startedAt = Date.now()
+          try {
+            // The engine chain itself is bounded by -t 55000; the outer
+            // signal only guards against a wedged server client.
+            const entry = await runCli(cliArgs, AbortSignal.timeout(70_000), config)
+            send(200, {
+              query,
+              status: entry.status,
+              engine: entry.engine,
+              summary: entry.summary,
+              items: Array.isArray(entry.items) ? entry.items : [],
+              uncertainty: Array.isArray(entry.uncertainty) ? entry.uncertainty : [],
+              warnings: Array.isArray(entry.warnings) ? entry.warnings : [],
+              attempts: Array.isArray(entry.attempts) ? entry.attempts : [],
+              elapsedMs: Date.now() - startedAt,
+            })
+          } catch (error) {
+            send(502, {
+              query,
+              error: String(error && error.message ? error.message : error),
+              elapsedMs: Date.now() - startedAt,
+            })
+          }
+        },
+      })
+    } catch (error) {
+      // A headless profile or older host lacks webServer; stay quiet.
+      ctx.logger?.warn?.('[dsh-network] search route skipped:', error?.message ?? error)
+    }
+  })
+}
+
 function summarize(config) {
   // Build a JSON-safe view of the resolved config; never echo API keys —
   // only the `hasApiKey` boolean that the editor card needs to render its
@@ -1728,6 +1861,26 @@ function applyCardSettings(config, patch) {
   // user to flip it from the settings page).
   if (typeof patch.allowConfigEdit === 'boolean') {
     config.allowConfigEdit = patch.allowConfigEdit
+  }
+  // Tool toggles (网络 → 工具). The settings page edits them and the persist
+  // layer round-trips them; the live value is read at every tool call and by
+  // the sidebar search route, so a flip takes effect without a reload.
+  // `enabled` deliberately has no patch path — the row config is the only
+  // kill-switch that can take the whole plugin down.
+  if (typeof patch.webSearchTool === 'boolean') {
+    config.webSearchTool = patch.webSearchTool
+  }
+  if (typeof patch.webFetchTool === 'boolean') {
+    config.webFetchTool = patch.webFetchTool
+  }
+  if (typeof patch.httpRequestTool === 'boolean') {
+    config.httpRequestTool = patch.httpRequestTool
+  }
+  if (typeof patch.webSitemapTool === 'boolean') {
+    config.webSitemapTool = patch.webSitemapTool
+  }
+  if (typeof patch.webConfigTool === 'boolean') {
+    config.webConfigTool = patch.webConfigTool
   }
   return { ok: true }
 }
@@ -1945,6 +2098,7 @@ export function apply(ctx, rawConfig) {
   // below; the legacy Plugins-tab card stays dormant in stock profiles.
   registerConfigRoute(ctx, config)
   registerHealthRoute(ctx)
+  registerSearchRoute(ctx, config)
 
   ctx.logger?.info?.(
     '[dsh-network] active (engines=%s, fetchTimeoutMs=%d, httpTimeoutMs=%d, tools: search=%s fetch=%s http=%s sitemap=%s config=%s, allowConfigEdit=%s)',
