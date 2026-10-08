@@ -176,8 +176,12 @@ for (const name of ['SEARCH_OUTPUT_SCHEMA', 'FETCH_OUTPUT_SCHEMA', 'HTTP_OUTPUT_
 // The tool-registration `parameters: { ... }` blocks. They are
 // followed by `output: { schema: <NAME>, ... }` on the next statement, so
 // we anchor on `output:` to keep the regex unambiguous.
+// The line breaks are matched as `\r?\n`: with `core.autocrlf=true` the
+// checked-out working tree is CRLF, and a bare `\n` in the pattern made this
+// guard match zero blocks on Windows — degrading it into "found 0" instead
+// of checking anything.
 const paramMatches = [
-  ...src.matchAll(/parameters: \{\n([\s\S]*?)\n    \},\n    output: \{/g),
+  ...src.matchAll(/parameters: \{\r?\n([\s\S]*?)\r?\n    \},\r?\n    output: \{/g),
 ]
 if (paramMatches.length !== 5) {
   console.error(`expected 5 parameters blocks (search, fetch, http_request, web_sitemap, web_config), found ${paramMatches.length}`)

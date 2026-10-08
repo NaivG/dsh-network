@@ -297,6 +297,123 @@ const toolWeb = registrations.find((r) => r.options.name === 'tool.web.item')
 const toolFetch = registrations.find((r) => r.options.name === 'tool.web.fetch.item')
 assert.ok(toolWeb, 'tool.web.item renderer must register')
 assert.ok(toolFetch, 'tool.web.fetch.item renderer must register')
+// dsh 0.2.x dispatches tool rows through tool.call.toolview keyed by tool
+// name; without this key the multi-query search card falls back to the native
+// renderer (empty per-query headings + one interleaved, capped source list).
+const toolView = registrations.find((r) => r.options.name === 'tool.call.toolview')
+assert.ok(toolView, 'tool.call.toolview renderer must register')
+assert.equal(toolView.options.key, 'web_search', 'the web_search key must be claimed so our row replaces the native one')
+assert.ok(
+  toolView.options.priority < 0,
+  `the row must claim a priority below dsh's native 0 (got ${toolView.options.priority}); ` +
+    'a keyed slot renders only the lowest-priority entry and THROWS when key+priority is taken',
+)
+
+// ── 2b. the search row renders each query's own hits ──
+// dsh's tool-web persists `{ answer, sources, truncated }` on the block; the
+// answer holds one `### <query>` section per query, so the row must show
+// those sections and must NOT re-render the pooled source list underneath.
+// Each scenario gets its OWN fake React: the fake keeps `useState` values in
+// a fiber-shaped store, so one shared instance would leak the previous row's
+// open/closed state into the next scenario (real React gives every row its
+// own fiber).
+function makeRow() {
+  const rowReact = createFakeReact()
+  const Row = mod.__card.SearchToolview(rowReact, {}, { current: { getSnapshot: () => ({ active: locale.active }) } })
+  return {
+    render(props) {
+      rowReact._enterRender()
+      const tree = Row(props)
+      rowReact._exitRender()
+      return tree
+    },
+  }
+}
+const multiQueryBlock = {
+  call: { args: { queries: ['Python 3.13 新特性', 'Tokyo ikea ikea store hours'] } },
+  meta: {
+    // 2 hits per query in the answer (4 total), while meta.sources holds only
+    // dsh's pooled list already cut to the call cap (2) — the exact shape of a
+    // two-query call whose pooled list dropped half the hits.
+    answer: '### Python 3.13 新特性\n8 sources from bing\n\n1. [python.org](https://docs.python.org/3.13/)\n2. [python.org whatsnew](https://docs.python.org/dev/whatsnew/3.13.html)\n\n### Tokyo ikea ikea store hours\n8 sources from bing\n\n1. [ikea.com](https://www.ikea.com/jp/en/stores/tokyo-bay/)\n2. [ikea stores](https://www.ikea.com/jp/ja/stores/)',
+    sources: [
+      { url: 'https://docs.python.org/3.13/', title: 'python.org', snippet: 'python snippet' },
+      { url: 'https://www.ikea.com/jp/en/stores/tokyo-bay/', title: 'ikea.com', snippet: 'ikea snippet' },
+    ],
+    truncated: true,
+  },
+}
+const multiRow = makeRow()
+const rowText = collectText(multiRow.render({ block: multiQueryBlock })).join('\n')
+assert.ok(rowText.includes('网络搜索'), 'row header must name the tool')
+assert.ok(rowText.includes('2 个查询'), 'a multi-query call must open expanded and report its query count')
+assert.ok(
+  rowText.includes('4 条来源') && !rowText.includes('2 条来源'),
+  `the header must count the 4 hits the answer renders, not the 2-entry capped pooled list (got: ${rowText.replace(/\n/g, ' ')})`,
+)
+assert.ok(rowText.includes('Python 3.13 新特性'), 'the per-query answer section must stay visible')
+assert.ok(rowText.includes('ikea.com'), 'each query keeps its own hits')
+assert.ok(!rowText.includes('python snippet'), 'the pooled source list must not be re-rendered under the answer')
+assert.ok(rowText.includes('结果已按上限截断'), 'the truncation note must survive')
+
+// The REAL dsh block shape: a settled call carries its arguments ONLY as the
+// raw JSON string `call.argsRaw` — the native rows JSON.parse it and there is
+// no pre-parsed `call.args` object. Reading `call.args` alone is exactly what
+// hid the "N 个查询" bit from the header before ("网络搜索 · 16 个来源").
+const argsRawBlock = {
+  call: { argsRaw: JSON.stringify({ queries: ['Python 3.13 新特性', 'Tokyo ikea ikea store hours'] }) },
+  meta: multiQueryBlock.meta,
+}
+const argsRawRow = makeRow()
+const argsRawText = collectText(argsRawRow.render({ block: argsRawBlock })).join('\n')
+assert.ok(
+  argsRawText.includes('2 个查询'),
+  `the query count must be parsed from call.argsRaw (got: ${argsRawText.replace(/\n/g, ' ')})`,
+)
+assert.ok(argsRawText.includes('4 条来源'), 'the hit count still describes the answer sections under the argsRaw shape')
+
+// A settled call with a meta object but zero hits must NOT read as running.
+const emptySettledText = collectText(makeRow().render({
+  block: { call: { argsRaw: JSON.stringify({ queries: ['q'] }) }, meta: { answer: '', sources: [], truncated: false } },
+})).join('\n')
+assert.ok(!emptySettledText.includes('搜索中…'), 'a settled zero-hit call must not show the running placeholder')
+
+// collapsed by default for a single-query call, expandable on click
+const singleBlock = {
+  call: { args: { queries: ['one query'] } },
+  meta: { answer: '8 sources from bing', sources: [], truncated: false },
+}
+const singleRow = makeRow()
+assert.ok(
+  !collectText(singleRow.render({ block: singleBlock })).join('\n').includes('8 sources from bing'),
+  'a single-query row stays collapsed like the native card',
+)
+const toggle = findNode(singleRow.render({ block: singleBlock }), (n) => n.type === 'button' && n.props && n.props['aria-expanded'] === false)
+assert.ok(toggle, 'the row header must be a toggle button')
+toggle.props.onClick()
+assert.ok(
+  collectText(singleRow.render({ block: singleBlock })).join('\n').includes('8 sources from bing'),
+  'clicking the header expands the row',
+)
+
+// unsettled block: no meta yet → running placeholder, header not expandable
+const runningRow = makeRow()
+const runningText = collectText(runningRow.render({ block: { call: { args: { queries: ['q'] } } } })).join('\n')
+assert.ok(runningText.includes('搜索中…'), 'a call without a settled result shows the running placeholder')
+
+// our own web_search meta (no answer) falls back to the source list
+const ownBlock = {
+  call: { args: { query: 'single' } },
+  meta: { engine: 'bing', status: 'ok', sources: [{ url: 'https://example.com/', title: 'example', snippet: 'excerpt' }], truncated: false },
+}
+const ownRow = makeRow()
+const ownHeader = collectText(ownRow.render({ block: ownBlock })).join('\n')
+assert.ok(ownHeader.includes('engine: bing'), 'the plugin-own meta shape must keep its engine badge')
+findNode(ownRow.render({ block: ownBlock }), (n) => n.type === 'button' && n.props && n.props['aria-expanded'] === false).props.onClick()
+assert.ok(
+  collectText(ownRow.render({ block: ownBlock })).join('\n').includes('excerpt'),
+  'the plugin-own meta shape must fall back to the source list',
+)
 
 // ── 3. the section page renders the config form ──
 const Section = mod.__card.NetworkSection(react, { Input: 'input' }, { current: { getSnapshot: () => ({ active: locale.active }) } })

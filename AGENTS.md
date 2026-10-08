@@ -84,7 +84,52 @@ only actor that can flip the toggle.
   dsh web. The factory MUST declare its `require` parameter. Mounts a
   dedicated `settings.section` ("网络"), a dormant
   `settings.plugin.item` card, and block renderers on
-  `tool.web.item` / `tool.web.fetch.item`.
+  `tool.web.item` / `tool.web.fetch.item` (older dsh) plus the current
+  `tool.call.toolview` key `web_search`.
+- **Search answer contract** (`dsh/index.js` `makeSearchProvider`). The
+  seam hands a provider one `content` per query, and dsh's own
+  `tool-web` merges every query of one call into a single card: it
+  wraps each query's `content` in a `### <query>` heading and pools all
+  sources into ONE list capped at `searchMaxResults`, interleaved
+  round-robin. Returning only the CLI summary therefore rendered two
+  empty headings above an A/B/A/B list and hid every source past the cap
+  (a 4-query call lost 3/4 of its hits, for the model too). The provider
+  now renders **this query's full hit list** into `content`, so each
+  `###` section is self-contained; `sources` still carries the complete
+  set for any other consumer. Each hit is TWO lines —
+  `N. [title](url)` closed by a GFM hard break (two trailing spaces; a
+  bare `\n` is a soft break and renders as a space in dsh's markdown
+  renderer) with the snippet/date indented four spaces on the next line —
+  so the card shows a blue link with its description on a second line,
+  and the sections join on blank lines so the trailing `Uncertain:` note
+  can never lazy-continue the last list item (`tests/search-source-format.spec.ts`
+  pins the whitespace).
+- **Search card override** (`dsh/client.js` `SearchToolview`).
+  `tool.call.toolview` is a KEYED slot: one cell per tool name, only the
+  **lowest-priority** live entry of a cell renders, and re-registering a
+  key at an already-taken priority **throws**. dsh claims `web_search`
+  at the default priority 0, so the plugin claims `-900` to shadow the
+  native row; the registration is try/caught so an upstream change can
+  never take the whole browser half down. The row renders the
+  per-query answer and deliberately does NOT re-render the pooled source
+  list; it falls back to a plain source list for this plugin's own
+  `web_search` meta (`{engine, status, sources}` — no `answer`).
+  Style-wise the row is composed to read like a first-party dsh tool card:
+  a borderless disclosure row (16px leading box whose globe crossfades to a
+  chevron on hover, 13px title, 2px dot separators, one ellipsing summary)
+  over a WebBlock-styled body card. The rules are copied from dsh's own
+  DisclosureRow / ToolRow / WebBlock module CSS under `dshn-` class names
+  (injected once per document) because the upstream hashed classes are
+  internal to the dsh bundle; primitives exports (TextShimmer, flow icons,
+  LinkIconMedium) are used when present with identical inline-SVG fallbacks.
+  Arguments are read via `argsOf`: a settled dsh block carries its arguments
+  ONLY as the raw JSON string `block.call.argsRaw` (the native rows
+  JSON.parse it — there is no pre-parsed `call.args`), with a literal
+  `call.args` fallback for hosts/tests. Reading `call.args` alone is what
+  once hid the "N 个查询" bit from the multi-query header. A settled block
+  is detected by meta PRESENCE (a finished zero-hit call persists a meta
+  object), not by hit count — the old test left such calls showing
+  搜索中… forever.
 - **Single responsibility**. This package owns live web (search +
   fetch + http + document parsing). Image parsing lives in `modlens`.
 - **Search engine registry**. Each engine lives in its own file under
@@ -227,8 +272,10 @@ are bounded by `--max-results` (default 10, hard cap 20).
 - `pnpm run test:client` for the browser-half smoke test
   (`tests/client-smoke.mjs`, plain node): asserts the "网络" section
   registers with a working `require`, the page renders and saves
-  through the loopback route, and the Plugins-tab card + renderers
-  bind after the route probe.
+  through the loopback route, the Plugins-tab card + renderers bind
+  after the route probe, and the `tool.call.toolview` `web_search` row
+  renders each query's own answer section (never the pooled source
+  list) with a sub-zero priority.
 - `pnpm run test:persist` for the durability smoke test
   (`tests/persist-smoke.mjs`, plain node): snapshots save/load
   atomically, corrupt/missing files degrade with a warning, and a
@@ -240,7 +287,10 @@ are bounded by `--max-results` (default 10, hard cap 20).
   `output.schema` block registered by `dsh/index.js` and asserts they
   pass `dsh-tools.assertSupportedJsonSchema`. Locates dsh-tools via
   `DSH_TOOLS_PATH` or the npm/pnpm global root; skips with exit 0 when
-  the harness is not installed.
+  the harness is not installed. The `parameters` regex matches line
+  breaks as `\r?\n` on purpose: with `core.autocrlf=true` the working
+  tree is CRLF and a bare `\n` silently matched ZERO blocks on Windows,
+  turning the guard into a no-op.
 - `pnpm run test:all` runs the unit suite, all three smokes, and the
   schema guard in one go.
 - `pnpm build` to produce `dist/cli.cjs` + `dist/server-*.cjs`;

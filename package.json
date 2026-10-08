@@ -1,6 +1,6 @@
 {
   "name": "dsh-network",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "dsh-native web suite (CLI + host plugin): replaces tool-web's web_search/web_fetch with a loopback Node CLI over undici, adds http_request, server-side cache paging for oversized bodies, PDF/Office/EPUB → Markdown parsing, and a \"网络\" settings section with block renderers for the dsh web frontend.",
   "private": true,
   "license": "MIT",

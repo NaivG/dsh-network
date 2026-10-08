@@ -528,6 +528,51 @@ function renderHttpEvidence(value) {
 }
 
 // ────────────────────────── providers into the web seam ──────────────────────────
+
+// GFM hard break: exactly two trailing spaces. Inside one paragraph a bare
+// `\n` is a soft break and renders as a space in dsh's markdown renderer —
+// only a hard break produces a real second line.
+const GFM_HARD_BREAK = '  '
+// The description line's indent. Four spaces is the content column of a
+// two-digit `10. ` marker, so the line stays a paragraph continuation of the
+// list item for both one- and two-digit numbers (an indented code block
+// would need content column + 4).
+const SEARCH_DESC_INDENT = '    '
+
+/**
+ * Render one seam search source as a TWO-line markdown list item: the first
+ * line is the linked label (the engine's title, or the bare hostname when it
+ * gave none), the second line — one GFM hard break below — carries the
+ * snippet and the date when present. The search card renders each hit as a
+ * blue link with its description on a line of its own.
+ *
+ * The label is flattened to a single line and stripped of `[` / `]` so an
+ * engine title can never break out of the surrounding link.
+ */
+function renderSearchSourceItem(source) {
+  let label = source.url
+  if (typeof source.title === 'string' && source.title !== '') {
+    label = source.title
+  } else {
+    try {
+      label = new URL(source.url).hostname
+    } catch {
+      label = source.url
+    }
+  }
+  label = label.replace(/\s+/g, ' ').replace(/[[\]]/g, '').trim() || source.url
+  const link = `[${label}](${source.url})`
+  const meta = []
+  if (typeof source.snippet === 'string' && source.snippet !== '') {
+    meta.push(source.snippet.replace(/\s+/g, ' '))
+  }
+  if (typeof source.publishedAt === 'string' && source.publishedAt !== '') {
+    meta.push(`(${source.publishedAt})`)
+  }
+  if (meta.length === 0) return link
+  return `${link}${GFM_HARD_BREAK}\n${SEARCH_DESC_INDENT}${meta.join(' ')}`
+}
+
 function makeSearchProvider(config) {
   return {
     id: 'dsh-network',
@@ -541,11 +586,33 @@ function makeSearchProvider(config) {
       const sources = toSearchSources(entry.items)
       const truncated =
         typeof request.maxResults === 'number' && sources.length >= request.maxResults
-      const lines = [entry.summary]
+      // `content` is ONE query's own slice of the answer. dsh's tool-web
+      // merges several queries into a single card: it wraps each query's
+      // content in a `### <query>` heading and pools every query's sources
+      // into one list capped at `maxResults`. Returning only the summary left
+      // those headings empty and let the pooled cap hide every source past
+      // the first `maxResults` — a four-query call lost three quarters of its
+      // hits for BOTH the model and the card. Listing this query's hits here
+      // keeps each section self-contained; the full set still travels as
+      // `sources` for any consumer of the seam contract.
+      //
+      // Sections join on BLANK lines: in the card's markdown a text line at
+      // column 0 right after the list would lazy-continue the last item's
+      // paragraph, and the old single-`\n` join could not even express a
+      // blank line (an empty string was filtered out of `lines`).
+      const sections = []
+      if (entry.summary) sections.push(entry.summary)
+      if (sources.length > 0) {
+        sections.push(
+          sources
+            .map((source, index) => `${index + 1}. ${renderSearchSourceItem(source)}`)
+            .join('\n'),
+        )
+      }
       const uncertainty = Array.isArray(entry.uncertainty) ? entry.uncertainty : []
-      if (uncertainty.length > 0) lines.push(`Uncertain: ${uncertainty.join('; ')}`)
+      if (uncertainty.length > 0) sections.push(`Uncertain: ${uncertainty.join('; ')}`)
       return {
-        content: lines.filter(Boolean).join('\n'),
+        content: sections.join('\n\n'),
         sources,
         truncated,
       }

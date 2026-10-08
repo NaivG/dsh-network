@@ -21,13 +21,17 @@
  *      stays dormant in the stock web profile). It reuses the same
  *      per-section renderers so the two surfaces stay in sync.
  *
- *   3. **Dedicated search / fetch block renderers** (`tool.web.item` /
- *      `tool.web.search.item` / `tool.web.fetch.item` slots). Web profile
- *      users get more than the native web cards: each result block carries
- *      the engine that answered, a redirect chain badge, an uncertainty
- *      list, and an outgoing-link count — fields the native card drops.
- *      The renderers are reactive, fall back to the raw body if a piece of
- *      structured data is missing, and never mutate session state.
+ *   3. **Search card renderer** (`tool.call.toolview`, key `web_search`) —
+ *      the card system current dsh builds ship. dsh's tool-web merges every
+ *      query of one call into a single capped, round-robin source list under
+ *      per-query headings, which reads badly (empty headings, an interleaved
+ *      list) and hides the sources past the cap. This row renders the
+ *      provider's per-query answer instead, so each query keeps its own
+ *      heading and its own hits. The legacy `tool.web.item` /
+ *      `tool.web.fetch.item` renderers stay registered for older dsh builds
+ *      and add engine / uncertainty / outgoing-link chrome around the native
+ *      cards. All renderers are reactive, fall back to the raw body when a
+ *      piece of structured data is missing, and never mutate session state.
  *
  * Hand-written in the same lazy-CJS protocol used by the dsh client
  * plugin loader (window.__ModuleLoader__.load), so no build step and no
@@ -182,6 +186,12 @@ window.__ModuleLoader__.load({
         engineUnknown: '该搜索引擎不存在',
         engineDuplicate: '该类别已存在',
         engineNoCategory: '请选择类别',
+        searchToolTitle: '网络搜索',
+        searchToolQueries: '个查询',
+        searchToolSources: '条来源',
+        searchToolRunning: '搜索中…',
+        searchToolTruncated: '结果已按上限截断',
+        searchToolNoResults: '未找到结果',
       },
       en: {
         nav: 'Network',
@@ -282,6 +292,12 @@ window.__ModuleLoader__.load({
         engineUnknown: 'No such search engine',
         engineDuplicate: 'Category already added',
         engineNoCategory: 'Pick a category first',
+        searchToolTitle: 'Web search',
+        searchToolQueries: 'queries',
+        searchToolSources: 'sources',
+        searchToolRunning: 'Searching…',
+        searchToolTruncated: 'Results were capped',
+        searchToolNoResults: 'No results found',
       },
     }
 
@@ -1778,6 +1794,11 @@ window.__ModuleLoader__.load({
     }
 
     // ───────── dedicated search / fetch block renderers ─────────
+    // Priority claimed for our `tool.call.toolview` `web_search` entry. dsh
+    // registers the native row at the default 0 and a keyed slot renders only
+    // the LOWEST-priority live entry of a cell, so a negative number is what
+    // shadows it. See the registration site below.
+    var WEB_SEARCH_ROW_PRIORITY = -900
     // The renderers below are wired into `slot.tool.web.*` slots when
     // they exist on the host page. They never re-fetch; they read the
     // tool's `result.meta` (the structured projection already persisted
@@ -1897,6 +1918,330 @@ window.__ModuleLoader__.load({
           warnings.length ? react.createElement('ul', { style: { paddingLeft: '18px', margin: '6px 0', fontSize: '12px', color: '#a16207' } },
             warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })
           ) : null
+        )
+      }
+    }
+
+    /**
+     * `tool.call.toolview` row for `web_search` — the card system dsh 0.2.x
+     * ships (`dsh-client-ui-tool` dispatches every tool row through this slot
+     * and a keyed registration REPLACES the native row).
+     *
+     * Why we take it over: the native web card renders one flat `sources` list
+     * for the whole call. dsh's tool-web merges several queries into a single
+     * call — each query's own `content` lands under a `### <query>` heading,
+     * while every query's sources are pooled, de-duplicated, interleaved
+     * round-robin and capped at `searchMaxResults`. Two queries therefore
+     * rendered as two empty headings above an A/B/A/B list, plus a
+     * "sources truncated" note — and the hits that did not fit the cap reached
+     * neither the model nor the card.
+     *
+     * This row renders the provider's per-query answer instead, so every query
+     * keeps its own heading and its own hits in engine rank order.
+     * `meta.sources` is left untouched for any other consumer of the block —
+     * it is simply not re-rendered here.
+     *
+     * Style: the row is composed to read like a first-party dsh tool card —
+     * a borderless disclosure row (16px leading box whose globe crossfades to
+     * a chevron on hover, 13px title, 2px dot separators, one ellipsing
+     * summary) over a WebBlock-styled body card. The rules are copied from
+     * dsh's own DisclosureRow / ToolRow / WebBlock module CSS under our own
+     * `dshn-` class names (injected once per document), because the upstream
+     * hashed class names are internal to the dsh bundle. Primitives exports
+     * (TextShimmer, flow icons, LinkIconMedium) are used when present; inline
+     * SVG fallbacks keep the structure identical everywhere else.
+     *
+     * Two meta shapes reach this row: dsh's own web_search persists
+     * `{ answer, sources, truncated }` (the answer carries the `###` sections),
+     * while this plugin's own web_search persists
+     * `{ status, engine, sources, uncertainty, warnings, attempts }` with a
+     * single query and no answer. The second shape falls back to the source
+     * list plus the engine/uncertainty badges.
+     *
+     * Argument reading: a settled dsh block carries its arguments ONLY as the
+     * raw JSON string `block.call.argsRaw` — the native rows JSON.parse it
+     * (see `parsedToolCall` in dsh-client-ui-tool) and there is no pre-parsed
+     * `call.args`. Reading `call.args` alone is why the header's query count
+     * never appeared ("网络搜索 · 16 个来源" without the "N 个查询" bit).
+     * `argsOf` parses `argsRaw` first and falls back to a literal `call.args`
+     * object for hosts/tests that provide one.
+     */
+
+    // ───────── native-style toolview styles (copied from dsh 0.2.x) ─────────
+    var TOOLVIEW_CSS = [
+      // DisclosureRow + ToolRow header: borderless flow row, 24px line, hover lift.
+      '.dshn-toolview{display:flex;flex-direction:column;width:100%;min-width:0}',
+      '.dshn-toolview-row{position:relative;overflow:hidden;display:flex;align-items:center;min-height:calc(24px + var(--dsh-content-font-delta,0px));min-width:0;margin:0;padding:0;border:none;background:none;font:inherit;text-align:left;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));transition:color 100ms ease;cursor:pointer}',
+      '.dshn-toolview-row:hover{color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9))}',
+      '.dshn-toolview-row[data-static]{cursor:default}',
+      // 16px leading box; 14px glyphs; globe ⇄ chevron crossfade on hover.
+      '.dshn-leading{position:relative;flex:none;width:calc(16px + var(--dsh-content-font-delta,0px));height:calc(16px + var(--dsh-content-font-delta,0px));display:inline-flex;align-items:center;justify-content:center;margin-right:6px}',
+      '.dshn-leading svg{width:calc(14px + var(--dsh-content-font-delta,0px));height:calc(14px + var(--dsh-content-font-delta,0px))}',
+      '.dshn-icon-idle{display:inline-flex;opacity:1;transition:opacity 100ms ease}',
+      '.dshn-chevron-hover{position:absolute;inset:0;margin:auto;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity 100ms ease}',
+      '.dshn-toolview-row:hover .dshn-icon-idle{opacity:0}',
+      '.dshn-toolview-row:hover .dshn-chevron-hover{opacity:1}',
+      // Title · summary fragments, joined by 2px dot separators.
+      '.dshn-title{flex:none;font-size:var(--dsh-content-font-size-secondary,13px);line-height:calc(24px + var(--dsh-content-font-delta,0px));color:inherit;font-weight:400}',
+      '.dshn-sep{background:var(--dsw-alias-label-caption,rgba(127,127,127,0.55));border-radius:1px;flex:none;width:2px;height:2px;margin:0 8px}',
+      '.dshn-summary{min-width:0;font-size:var(--dsh-content-font-size-secondary,13px);line-height:calc(24px + var(--dsh-content-font-delta,0px));color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}',
+      '.dshn-summary-fill{flex:1 1 auto}',
+      '.dshn-suffix{flex:none;white-space:nowrap;margin-left:4px}',
+      '.dshn-suffix:empty{display:none}',
+      '.dshn-textwrap{display:flex;align-items:center;min-width:0;max-width:100%;flex:0 1 auto}',
+      // WebBlock-styled body card: the markdown-code-block surface.
+      '.dshn-body{display:flex;flex-direction:column;min-width:0}',
+      '.dshn-card{margin:16px 0 4px 4px;padding:12px 14px;min-width:0;color:var(--dsw-alias-label-primary,inherit);background:var(--dsw-alias-markdown-code-block,rgba(127,127,127,0.08));border-radius:var(--dsw-radius-lg,10px)}',
+      '.dshn-answer{margin-bottom:8px;min-width:0}',
+      // Numbered source list (WebBlock `.sources` geometry).
+      '.dshn-sources{margin:0;padding-left:2.5em;display:flex;flex-direction:column;gap:10px;max-height:320px;overflow-y:auto}',
+      '.dshn-source{min-width:0}',
+      '.dshn-source-link{color:var(--dsw-alias-link,inherit);font-size:14px;font-weight:500;line-height:20px;word-break:break-word;text-decoration:none}',
+      '.dshn-source-link:hover,.dshn-source-link:focus-visible{text-decoration:underline dotted;text-underline-offset:3px}',
+      '.dshn-link-icon{width:1.1em;height:1.1em;vertical-align:-0.25em;margin-right:5px}',
+      '.dshn-snippet{margin-top:2px;color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));font-size:13px;line-height:19px;word-break:break-word}',
+      '.dshn-published{margin-top:2px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-note{margin-top:8px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-empty{color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-attempts{margin-top:8px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-attempts summary{cursor:pointer}',
+      '.dshn-attempts pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:inherit}',
+    ].join('')
+    var TOOLVIEW_CSS_TAG = 'style[data-plugin-css="dsh-network/toolview.module.css"]'
+    /** Inject the toolview stylesheet once; skipped where document.head is absent (tests, SSR). */
+    function ensureToolviewStyles() {
+      try {
+        if (typeof document === 'undefined' || !document || !document.head) return
+        if (typeof document.querySelector === 'function' && document.querySelector(TOOLVIEW_CSS_TAG)) return
+        if (typeof document.createElement !== 'function') return
+        var tag = document.createElement('style')
+        tag.setAttribute('data-plugin', 'dsh-network')
+        tag.setAttribute('data-plugin-css', 'dsh-network/toolview.module.css')
+        tag.textContent = TOOLVIEW_CSS
+        document.head.appendChild(tag)
+      } catch (error) { /* decorative only — never block registration */ }
+    }
+
+    // Inline SVG fallbacks for the primitives flow icons, so the row keeps the
+    // native glyph geometry whether or not the host exports the icon set.
+    var GLOBE_ICON_PATH = 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z'
+    var CHEVRON_DOWN_PATH = 'm6 9 6 6 6-6'
+    var CHEVRON_UP_PATH = 'm18 15-6-6-6 6'
+    var LINK_ICON_PATHS = [
+      'M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71',
+      'M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71',
+    ]
+
+    function SearchToolview(react, ui, localeRef) {
+      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
+      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var IconGlobe = ui && ui.IconGlobeOutlineRegular ? ui.IconGlobeOutlineRegular : null
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+      var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
+
+      ensureToolviewStyles()
+
+      function flowIcon(pathD, stroke) {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24',
+          fill: stroke ? 'none' : 'currentColor',
+          stroke: stroke ? 'currentColor' : 'none',
+          strokeWidth: stroke ? 2 : undefined,
+          strokeLinecap: stroke ? 'round' : undefined,
+          strokeLinejoin: stroke ? 'round' : undefined,
+          'aria-hidden': true,
+        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
+      }
+
+      /** The call's parsed arguments: `argsRaw` JSON first (the only shape a
+       *  settled dsh block carries), then a literal `args` object. */
+      function argsOf(block) {
+        var call = block && block.call
+        if (!call) return {}
+        if (typeof call.argsRaw === 'string' && call.argsRaw !== '') {
+          try {
+            var parsed = JSON.parse(call.argsRaw)
+            if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
+          } catch (error) { /* partial/streaming argsRaw — fall through */ }
+        }
+        return call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {}
+      }
+
+      /** The queries of a call, accepting both arg shapes (`queries` array /
+       *  this plugin's single `query` string). */
+      function queriesOf(block) {
+        var args = argsOf(block)
+        if (Array.isArray(args.queries)) {
+          return args.queries.filter(function (q) { return typeof q === 'string' && q.trim() !== '' })
+        }
+        return typeof args.query === 'string' && args.query.trim() !== '' ? [args.query] : []
+      }
+
+      /** http(s) URLs only — mirrors the primitives' SafeLink allowlist, so a
+       *  `javascript:`/`data:` URL never reaches the DOM as an href. */
+      function safeHref(url) {
+        if (typeof url !== 'string' || url === '') return null
+        try {
+          var protocol = new URL(url).protocol
+          return protocol === 'http:' || protocol === 'https:' ? url : null
+        } catch (error) { return null }
+      }
+
+      /** Title or hostname label, never blank (mirrors WebBlock's linkLabel). */
+      function linkLabel(url, title) {
+        if (typeof title === 'string' && title !== '') return title
+        try {
+          var hostname = new URL(url).hostname
+          return hostname === '' ? url : hostname
+        } catch (error) { return url }
+      }
+
+      function sourceList(sources) {
+        if (sources.length === 0) return null
+        return react.createElement('ol', { className: 'dshn-sources' },
+          sources.map(function (s, i) {
+            var url = typeof s.url === 'string' ? s.url : ''
+            var href = safeHref(url)
+            var label = linkLabel(url, s.title)
+            var iconNode = null
+            if (href) {
+              iconNode = LinkIcon
+                ? react.createElement(LinkIcon, { key: 'icon', kind: 'url', href: href, className: 'dshn-link-icon' })
+                : react.createElement('svg', {
+                  key: 'icon', className: 'dshn-link-icon', viewBox: '0 0 24 24',
+                  fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+                  strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true,
+                }, LINK_ICON_PATHS.map(function (d, pi) {
+                  return react.createElement('path', { key: pi, d: d, fill: 'none' })
+                }))
+            }
+            var linkProps = { className: 'dshn-source-link' }
+            if (href) {
+              linkProps.href = href
+              linkProps.target = '_blank'
+              linkProps.rel = 'noopener noreferrer'
+            }
+            return react.createElement('li', { key: i, className: 'dshn-source' },
+              react.createElement(href ? 'a' : 'span', linkProps, iconNode, label),
+              s.snippet ? react.createElement('div', { className: 'dshn-snippet' }, s.snippet) : null,
+              s.publishedAt ? react.createElement('div', { className: 'dshn-published' }, s.publishedAt) : null,
+            )
+          })
+        )
+      }
+
+      return function DshNetworkSearchRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        var queries = queriesOf(block)
+        var answer = typeof meta.answer === 'string' ? meta.answer : ''
+        var sources = Array.isArray(meta.sources) ? meta.sources : []
+        var uncertainty = Array.isArray(meta.uncertainty) ? meta.uncertainty : []
+        var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
+        var attempts = Array.isArray(meta.attempts) ? meta.attempts : []
+        // A settled block always persists a meta object — even a failed call
+        // — so meta PRESENCE, not hit count, separates "still running" from
+        // "finished, possibly empty". The old `answer || sources` test left a
+        // finished zero-hit call showing 搜索中… forever.
+        var settled = rawMeta !== null
+
+        // Multi-query calls are exactly the case the native card renders
+        // badly, so they start expanded; a plain single-query call keeps the
+        // native collapsed-by-default rhythm.
+        var openState = react.useState(queries.length > 1)
+        var open = settled && openState[0]
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(function (v) { return !v }) }
+
+        // Header summary, native rhythm: title · fragment · fragment with 2px
+        // dot separators. The fragments are the query itself (single query),
+        // the query count (multi), and the hit count of what the BODY shows.
+        // With an answer present that is every hit of every query, while
+        // `meta.sources` is dsh's pooled list already cut down to
+        // `searchMaxResults` — counting that would report "8 sources" above
+        // sixteen rendered hits. Count the answer's own numbered items
+        // instead, and fall back to the source list when the answer carries
+        // none (this plugin's own web_search).
+        var answerHits = answer === '' ? 0 : (answer.match(/^\s*\d+\.\s/gm) || []).length
+        var fragments = []
+        if (queries.length === 1) fragments.push(queries[0])
+        else if (queries.length > 1) fragments.push(queries.length + ' ' + t.searchToolQueries)
+        if (settled) {
+          var hits = answerHits || sources.length
+          if (hits > 0) fragments.push(hits + ' ' + t.searchToolSources)
+        } else fragments.push(t.searchToolRunning)
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          meta.engine ? Badge(react, 'engine: ' + meta.engine, 'meta') : null,
+          meta.status ? Badge(react, meta.status, meta.status === 'ok' ? 'ok' : 'warn') : null,
+          warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
+          uncertainty.length ? Badge(react, uncertainty.length + ' uncertain', 'uncertain') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, t.searchToolTitle)]
+        fragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === fragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        // Running rows shimmer exactly like the native ones when the host
+        // exports TextShimmer; the plain span keeps the same structure else.
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        // 16px leading box: globe at rest, chevron on hover (crossfade via
+        // CSS), chevron-up while expanded — the DisclosureRow pattern.
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            : [
+                react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' },
+                  IconGlobe ? react.createElement(IconGlobe, { size: 14 }) : flowIcon(GLOBE_ICON_PATH, false)),
+                react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                  IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+              ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          // An unsettled call has nothing to expand, so its state lives in
+          // the header — the native row does the same.
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var body = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' },
+              answer !== ''
+                ? react.createElement('div', { className: 'dshn-answer' },
+                  MarkdownText
+                    ? react.createElement(MarkdownText, { text: answer })
+                    : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, answer))
+                : (sources.length
+                  ? sourceList(sources)
+                  : react.createElement('div', { className: 'dshn-empty' }, t.searchToolNoResults)),
+              meta.truncated ? react.createElement('div', { className: 'dshn-note' }, t.searchToolTruncated) : null,
+              attempts.length ? react.createElement('details', { className: 'dshn-attempts' },
+                react.createElement('summary', null, attempts.length + ' engine attempt' + (attempts.length === 1 ? '' : 's')),
+                react.createElement('pre', null,
+                  attempts.map(function (a) { return (a.engine || 'engine') + ': ' + (a.error || 'ok') }).join('\n')))
+              : null,
+            ))
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? body : null,
         )
       }
     }
@@ -2037,6 +2382,26 @@ window.__ModuleLoader__.load({
                 FetchBlock,
               )
             })
+
+            // dsh 0.2.x replaced the tool.web.* slots with a single
+            // `tool.call.toolview` slot keyed by tool name. It is a KEYED slot:
+            // one cell per key, only the lowest-priority live entry of a cell
+            // renders (the rest are shadowed), and re-registering a key at a
+            // priority that is already taken THROWS. dsh claims `web_search`
+            // at the default priority 0, so we claim a lower number to shadow
+            // it — and a failure here must never take the rest of the plugin
+            // half down with it.
+            var SearchRow = SearchToolview(react, ui, localeRef)
+            scope.slots.inject('tool.call.toolview', function* () {
+              try {
+                yield scope.slots.register(
+                  { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_search', priority: WEB_SEARCH_ROW_PRIORITY, locale: 'dsh-network' },
+                  SearchRow,
+                )
+              } catch (error) {
+                console.error('[dsh-network] search toolview not registered:', error)
+              }
+            })
           } catch (error) {
             console.error('[dsh-network] plugin card skipped:', error)
           }
@@ -2046,7 +2411,7 @@ window.__ModuleLoader__.load({
 
     exports.apply = apply
     // Exposed for tests only; not part of the plugin contract.
-    exports.__card = { ConfigCard: ConfigCard, Renderer: Renderer, FetchBlockRenderer: FetchBlockRenderer, NetworkSection: NetworkSection, RenderNetworkPage: RenderNetworkPage, EngineDialog: EngineDialog, AddEngineDialog: AddEngineDialog }
+    exports.__card = { ConfigCard: ConfigCard, Renderer: Renderer, FetchBlockRenderer: FetchBlockRenderer, SearchToolview: SearchToolview, NetworkSection: NetworkSection, RenderNetworkPage: RenderNetworkPage, EngineDialog: EngineDialog, AddEngineDialog: AddEngineDialog }
     // Slots are optional; never declare them as a hard inject.
     exports.inject = []
     return module.exports
