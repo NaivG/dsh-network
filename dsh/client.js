@@ -61,7 +61,7 @@ window.__ModuleLoader__.load({
     var ENGINE_LABELS = { bing: 'Bing', duckduckgo: 'DuckDuckGo', baidu: 'Baidu', github: 'GitHub', searxng: 'SearXNG' }
     var ENGINE_DEFAULT_ENDPOINTS = {
       bing: 'https://www.bing.com/search',
-      duckduckgo: 'https://duckduckgo.com/html',
+      duckduckgo: 'https://html.duckduckgo.com/html',
       baidu: 'https://www.baidu.com/s',
       github: 'https://api.github.com/search',
       // SearXNG is deliberately NOT here: it is self-hosted, so its

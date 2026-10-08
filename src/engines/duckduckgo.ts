@@ -1,7 +1,7 @@
 /**
  * DuckDuckGoSearchEngine — DuckDuckGo lite HTML endpoint.
  *
- * Endpoint: `https://duckduckgo.com/html/?q=<q>`
+ * Endpoint: `https://html.duckduckgo.com/html/?q=<q>`
  *
  * We must use the `/html` lite endpoint because the bare `/` renders
  * client-side JavaScript. The lite endpoint returns server-rendered HTML
@@ -37,7 +37,7 @@ import {
 export class DuckDuckGoSearchEngine implements SearchEngine {
   readonly id = 'duckduckgo'
   readonly displayName = 'DuckDuckGo'
-  readonly endpoint = 'https://duckduckgo.com/html/'
+  readonly endpoint = 'https://html.duckduckgo.com/html/'
   readonly defaultHeaders = FIREFOX_DUCKDUCKGO
 
   buildUrl(query: string, options?: Readonly<Record<string, string>>): string {

@@ -187,7 +187,7 @@ describe('network URL/IP helpers', () => {
 describe('search engine URL building', () => {
   it('buildEngineUrl: all engines', () => {
     expect(buildEngineUrl('bing', 'a b')).toMatch(/^https:\/\/www\.bing\.com\/search\?q=a%20b/)
-    expect(buildEngineUrl('duckduckgo', 'x')).toMatch(/^https:\/\/duckduckgo\.com\/html\/\?q=x$/)
+    expect(buildEngineUrl('duckduckgo', 'x')).toMatch(/^https:\/\/html\.duckduckgo\.com\/html\/\?q=x$/)
     expect(buildEngineUrl('baidu', 'x')).toMatch(/^https:\/\/www\.baidu\.com\/s\?wd=x/)
   })
   it('parseBingResults: extracts url/title/snippet', () => {
