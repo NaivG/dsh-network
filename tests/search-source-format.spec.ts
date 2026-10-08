@@ -16,13 +16,16 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const hostSource = readFileSync(
-  fileURLToPath(new URL('../dsh/index.js', import.meta.url)),
-  'utf8',
-)
+// The host side is split across modules; renderSearchSourceItem and the two
+// whitespace constants live in dsh/evidence.js. Scan all of them so a
+// future move keeps this green.
+const HOST_FILES = ['index.js', 'schemas.js', 'cli-runner.js', 'evidence.js', 'providers.js', 'tools.js', 'routes.js', 'config-summary.js']
+const hostSource = HOST_FILES.map((file) =>
+  readFileSync(fileURLToPath(new URL(`../dsh/${file}`, import.meta.url)), 'utf8'),
+).join('\n')
 const match = hostSource.match(/function renderSearchSourceItem\(source\)\s*\{[\s\S]*?\n\}/)
 if (!match) {
-  throw new Error('Could not locate renderSearchSourceItem in dsh/index.js')
+  throw new Error('Could not locate renderSearchSourceItem in the dsh host modules')
 }
 // The function reads two module-level whitespace constants — extract their
 // real declarations too, so the test exercises the actual source text (a
@@ -30,7 +33,7 @@ if (!match) {
 const hardBreakDecl = hostSource.match(/^const GFM_HARD_BREAK = .*$/m)
 const descIndentDecl = hostSource.match(/^const SEARCH_DESC_INDENT = .*$/m)
 if (!hardBreakDecl || !descIndentDecl) {
-  throw new Error('Could not locate GFM_HARD_BREAK / SEARCH_DESC_INDENT in dsh/index.js')
+  throw new Error('Could not locate GFM_HARD_BREAK / SEARCH_DESC_INDENT in the dsh host modules')
 }
 type RenderSearchSourceItem = (
   source: { url: string; title?: string; snippet?: string; publishedAt?: string },

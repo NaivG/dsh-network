@@ -1,6 +1,6 @@
 // Regression guard for the dsh-tools JSON Schema subset.
 //
-// The host plugin (`dsh/index.js`) registers three tools whose `parameters`
+// The host plugin registers three tools whose `parameters`
 // and `output.schema` blocks are validated by `dsh-tools.assertSupportedJsonSchema`
 // at boot. The accepted subset is narrow:
 //   type / oneOf / properties / required / additionalProperties / items /
@@ -10,7 +10,13 @@
 // property — that was the boot failure fixed alongside this script.
 //
 // Run:  node ./tests/schema-check.mjs
-// Exits non-zero if any schema in dsh/index.js is rejected.
+// Exits non-zero if any schema in the host-side modules is rejected.
+//
+// The host side is split across modules (dsh/index.js + the files it
+// wires: schemas / cli-runner / evidence / providers / tools / routes /
+// config-summary). The schemas and the tool `parameters` blocks live in
+// `dsh/schemas.js` and `dsh/tools.js`, so this guard scans ALL of them
+// concatenated and keeps working if a constant moves between files.
 //
 // The validator lives in @deepseek-ai/dsh-tools, which ships inside the dsh
 // harness install rather than as a dependency of this package. It is located
@@ -81,7 +87,20 @@ if (!dshTools) {
 const { assertSupportedJsonSchema, JsonSchemaError } = dshTools
 
 const here = dirname(fileURLToPath(import.meta.url))
-const src = readFileSync(join(here, '..', 'dsh', 'index.js'), 'utf8')
+// Scan every host-side module: the constants and the parameters blocks can
+// legally live in any of them, and a future move must not silently no-op
+// this guard (the same failure mode the CRLF regex below once had).
+const HOST_FILES = [
+  'index.js',
+  'schemas.js',
+  'cli-runner.js',
+  'evidence.js',
+  'providers.js',
+  'tools.js',
+  'routes.js',
+  'config-summary.js',
+]
+const src = HOST_FILES.map((file) => readFileSync(join(here, '..', 'dsh', file), 'utf8')).join('\n')
 
 function extractConst(name) {
   // Walk forward from `const <name> = ` and brace-balance `{}` / `[]`
@@ -97,7 +116,7 @@ function extractConst(name) {
   // machine below tracks three top-level contexts — string, template
   // literal, and code — plus the depth-0 / depth-N nesting inside them.
   const start = src.indexOf(`const ${name} = `)
-  if (start === -1) throw new Error(`could not locate ${name} in dsh/index.js`)
+  if (start === -1) throw new Error(`could not locate ${name} in the dsh host modules`)
   const valueStart = start + `const ${name} = `.length
   let depth = 0
   let opener = ''
@@ -150,7 +169,7 @@ function extractConst(name) {
       }
     }
   }
-  throw new Error(`could not parse ${name} in dsh/index.js (unbalanced brackets?)`)
+  throw new Error(`could not parse ${name} in the dsh host modules (unbalanced brackets?)`)
 }
 
 let failed = 0

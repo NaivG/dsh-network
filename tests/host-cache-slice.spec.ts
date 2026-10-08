@@ -11,13 +11,15 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 
-const hostSource = readFileSync(
-  fileURLToPath(new URL('../dsh/index.js', import.meta.url)),
-  'utf8',
-)
+// The host side is split across modules; toHostCacheSlice lives in
+// dsh/evidence.js. Scan all of them so a future move keeps this green.
+const HOST_FILES = ['index.js', 'schemas.js', 'cli-runner.js', 'evidence.js', 'providers.js', 'tools.js', 'routes.js', 'config-summary.js']
+const hostSource = HOST_FILES.map((file) =>
+  readFileSync(fileURLToPath(new URL(`../dsh/${file}`, import.meta.url)), 'utf8'),
+).join('\n')
 const match = hostSource.match(/function toHostCacheSlice\(slice\)\s*\{[\s\S]*?\n\}/)
 if (!match) {
-  throw new Error('Could not locate toHostCacheSlice in dsh/index.js')
+  throw new Error('Could not locate toHostCacheSlice in the dsh host modules')
 }
 // eslint-disable-next-line no-new-func
 const toHostCacheSlice = new Function(match[0] + '; return toHostCacheSlice;')()
