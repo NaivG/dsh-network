@@ -16,6 +16,7 @@ function summarize(config) {
   const allowlist = Array.isArray(config.allowlist) ? config.allowlist : []
   const engines = Array.isArray(config.searchEngines) ? config.searchEngines : []
   const cfgMap = config.searchEngineConfigs && typeof config.searchEngineConfigs === 'object' ? config.searchEngineConfigs : {}
+  const keyMap = config.searchEngineApiKeys && typeof config.searchEngineApiKeys === 'object' ? config.searchEngineApiKeys : {}
   const searchEngineConfigs = {}
   // Iterate over the chain AND any engine that already carries settings. An
   // engine is normally configured BEFORE it joins the chain (you paste the
@@ -24,13 +25,28 @@ function summarize(config) {
   // the settings dialog then reopened as "no API key configured" even
   // though the key was stored, and any later edit wrote `hasApiKey: false`
   // back over it.
-  for (const id of new Set([...engines, ...Object.keys(cfgMap)])) {
-    const entry = cfgMap[id]
-    if (!entry || typeof entry !== 'object') continue
+  //
+  // The UNION also has to include engines that hold a key but no config
+  // entry, or a key stored without ever touching the dialog disappears from
+  // the view on reload.
+  const ids = new Set([...engines, ...Object.keys(cfgMap), ...Object.keys(keyMap)])
+  for (const id of ids) {
+    const entry = cfgMap[id] && typeof cfgMap[id] === 'object' ? cfgMap[id] : null
+    const hasKey = typeof keyMap[id] === 'string' && keyMap[id] !== ''
+    // A chain engine with neither settings nor a key has nothing to report —
+    // its row renders from an empty entry on the browser side anyway.
+    if (!entry && !hasKey) continue
+    // `hasApiKey` is DERIVED from the key map, never echoed from the stored
+    // flag: the flag is a claim, the map is the fact, and they drift (the
+    // flag was set to true by a save that never carried a key — see the
+    // credential hop in client.settings.js). The CLI reads the same map, so
+    // the badge and the engine can never disagree: a green dot now means the
+    // engine WILL send its auth header, and a false flag heals on the next
+    // save instead of haunting the row forever.
     searchEngineConfigs[id] = {
-      endpoint: typeof entry.endpoint === 'string' ? entry.endpoint : undefined,
-      hasApiKey: !!entry.hasApiKey,
-      options: entry.options && typeof entry.options === 'object' ? entry.options : {},
+      endpoint: entry && typeof entry.endpoint === 'string' ? entry.endpoint : undefined,
+      hasApiKey: hasKey,
+      options: entry && entry.options && typeof entry.options === 'object' ? entry.options : {},
     }
   }
   return {
@@ -132,11 +148,13 @@ function applyCardSettings(config, patch) {
       }
       next[id] = {
         endpoint: typeof incoming.endpoint === 'string' ? incoming.endpoint : prev.endpoint,
-        hasApiKey: typeof incoming.apiKey === 'string' && incoming.apiKey.trim() !== ''
-          ? true
-          : typeof incoming.hasApiKey === 'boolean'
-            ? incoming.hasApiKey
-            : prev.hasApiKey === true,
+        // The boolean is a VIEW of `nextKeys`, never an independent claim.
+        // Taking `incoming.hasApiKey` here is what let the stored flag drift
+        // to `true` while no key existed: the row badge then reported a
+        // configured key forever, and the CLI — which reads the map, not the
+        // flag — refused to send the auth header. Deriving it keeps the
+        // snapshot self-consistent and repairs the drift on the next save.
+        hasApiKey: typeof nextKeys[id] === 'string' && nextKeys[id] !== '',
         options: incoming.options && typeof incoming.options === 'object'
           ? incoming.options
           : prev.options && typeof prev.options === 'object' ? prev.options : {},

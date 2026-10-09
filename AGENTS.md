@@ -239,6 +239,36 @@ only actor that can flip the toggle.
   `hasApiKey: false` and no keyed engine could ever authenticate.
   `tests/engine-config-wiring.spec.ts` pins the env var NAMES on both
   sides (a rename on one side only degrades silently to "unset").
+- **The credential chain has FOUR hops, and the third was broken
+  longer than the fourth.** browser dialog → `commitEngineDialog`
+  builds the PUT patch → `applyCardSettings` fills
+  `config.searchEngineApiKeys` → `configToEnv` packs
+  `DSH_NETWORK_SEARCH_ENGINE_API_KEYS` → the CLI resolves the header.
+  `commitEngineDialog` collected the typed key into the dialog state
+  and then built the patch from `endpoint` / `hasApiKey` / `options`
+  only, dropping `apiKey` on the floor: the host stored "a key is
+  configured" and never a key, `searchEngineApiKeys` stayed `{}`
+  forever, and the row badge stayed green while Brave was
+  short-circuited as "no credential". Every layer BELOW was correct,
+  which is why no test caught it — `persist.js` snapshotted an empty
+  map faithfully. `tests/client-chunks.spec.ts` now drives the real
+  dialog (a recording `createElement` spy: the surfaces take `react`
+  as a PROP, so the chunk uses the spy, and the recorded password
+  input's `onChange` + save button's `onClick` reproduce typing and
+  saving); `react-dom/server` alone cannot catch this because it drops
+  handlers. The key is also stripped from the draft after the save
+  lands (`stripApiKeys`) — write-only means one trip, not a plaintext
+  copy re-sent by every later debounced save.
+- **`hasApiKey` is a VIEW of the key map, never a stored claim**
+  (`summarize()` and `applyCardSettings` both derive it from
+  `searchEngineApiKeys[id]`). The stored flag drifted: it was set
+  true by a save that carried no key, the CLI read the map and refused
+  to send the header, and the badge lied for the rest of the profile's
+  life. One truth, read by both sides: the badge now means the engine
+  WILL send its auth header, and a drifted `true` heals on the next
+  save. `summarize()` also unions the KEY map into its iteration, so
+  an engine that holds a key but no `searchEngineConfigs` entry (row
+  config, hand-written `config.yaml`) is visible instead of invisible.
 - **Per-engine options**. `DSH_NETWORK_ENGINE_OPTIONS` carries the
   settings dialog's free-form `key=value` textarea as
   `{ engineId: { … } }`; an engine reads its own slice with

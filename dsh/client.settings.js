@@ -76,6 +76,34 @@ window.__ModuleLoader__.load({
       return patch
     }
 
+    /** draft → draft with every engine `apiKey` field dropped.
+     *
+     *  Engine keys are write-only: they ride the save payload once and the
+     *  host owns them from then on (`summarize()` only ever answers
+     *  `hasApiKey`). Keeping the plaintext in the draft would re-ship the
+     *  secret on EVERY later debounced save and leave it sitting in the
+     *  page's state for the rest of the session. Returns the input
+     *  untouched when there is nothing to strip, so React bails out of the
+     *  re-render. */
+    function stripApiKeys(prev) {
+      var configs = prev && prev.searchEngineConfigs
+      if (!configs || typeof configs !== 'object') return prev
+      var changed = false
+      var next = {}
+      Object.keys(configs).forEach(function (id) {
+        var entry = configs[id]
+        if (!entry || typeof entry !== 'object' || typeof entry.apiKey !== 'string') {
+          next[id] = entry
+          return
+        }
+        var copy = Object.assign({}, entry)
+        delete copy.apiKey
+        next[id] = copy
+        changed = true
+      })
+      return changed ? Object.assign({}, prev, { searchEngineConfigs: next }) : prev
+    }
+
     // ───────────────── shared primitives ─────────────────
     /** Pill toggle, mirror of dsh's settings-general row switch. */
     function ToggleSwitch(react, checked, onChange, ariaLabel) {
@@ -248,11 +276,25 @@ window.__ModuleLoader__.load({
         if (!dlg) return
         var id = dlg.id
         var nextConfigs = Object.assign({}, configs)
-        nextConfigs[id] = {
+        var entry = {
           endpoint: dlg.endpoint,
           hasApiKey: dlg.hasApiKey,
           options: dlg.options,
         }
+        // THE credential hop. The host stores `searchEngineConfigs[id].apiKey`
+        // into `config.searchEngineApiKeys[id]` (dsh/config-summary.js) and
+        // configToEnv() ships THAT map to the CLI as
+        // DSH_NETWORK_SEARCH_ENGINE_API_KEYS — nothing else ever reaches it.
+        // Committing only `hasApiKey` therefore configured the status dot and
+        // left every keyed engine (Brave) permanently unauthenticated: the
+        // flag said "key present", the CLI read an empty map. Ship the typed
+        // value here; an empty/untouched field is omitted on purpose so the
+        // host keeps whatever it already stored (the input is write-only, so
+        // reopening the dialog never shows the stored key back).
+        if (typeof dlg.apiKey === 'string' && dlg.apiKey.trim() !== '') {
+          entry.apiKey = dlg.apiKey
+        }
+        nextConfigs[id] = entry
         var patch = { searchEngineConfigs: nextConfigs }
         if (id === 'github') {
           if (Array.isArray(dlg.githubIndexes)) patch.githubIndexes = dlg.githubIndexes
@@ -1154,6 +1196,11 @@ window.__ModuleLoader__.load({
               // `saved.value` would silently undo those edits. Let the
               // next change trigger another debounced save.
               summaryState[1](saved)
+              // The engine key that rode this payload now belongs to the
+              // host: drop the plaintext from the draft (functional update,
+              // so edits made during the round-trip survive). An aborted
+              // save never gets here — the inFlight guard above returns.
+              draftState[1](stripApiKeys)
               noteState[1](t.saved)
             })
             .catch(function (e) {
@@ -1260,6 +1307,7 @@ window.__ModuleLoader__.load({
               inFlight.current = null
               lastRevision.current = saved.revision
               summaryState[1](saved)
+              draftState[1](stripApiKeys)
               noteState[1](t.saved)
             })
             .catch(function (e) {

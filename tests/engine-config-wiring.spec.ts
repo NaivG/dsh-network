@@ -39,10 +39,22 @@ if (!summarizeMatch) throw new Error('Could not locate summarize in dsh/config-s
 const schemasSource = readFileSync(fileURLToPath(new URL('../dsh/schemas.js', import.meta.url)), 'utf8')
 const githubSortsDecl = schemasSource.match(/^const GITHUB_SORTS = .*$/m)
 if (!githubSortsDecl) throw new Error('Could not locate GITHUB_SORTS in dsh/schemas.js')
+const githubIndexIdsDecl = schemasSource.match(/^const GITHUB_INDEX_IDS = .*$/m)
+if (!githubIndexIdsDecl) throw new Error('Could not locate GITHUB_INDEX_IDS in dsh/schemas.js')
 // eslint-disable-next-line no-new-func
 const summarize = new Function(
   `${githubSortsDecl[0]}\n${summarizeMatch[0]}\nreturn summarize;`,
 )() as (config: Record<string, unknown>) => Record<string, any>
+// applyCardSettings is the WRITE half of the same contract: the browser PUT
+// lands here, and it is the only place `config.searchEngineApiKeys` is ever
+// filled. It is extracted the same way (its only free names are the two
+// schema vocabularies) so the test drives the real host code.
+const applyMatch = configSummarySource.match(/function applyCardSettings\(config, patch\)\s*\{[\s\S]*?\n\}/)
+if (!applyMatch) throw new Error('Could not locate applyCardSettings in dsh/config-summary.js')
+// eslint-disable-next-line no-new-func
+const applyCardSettings = new Function(
+  `${githubSortsDecl[0]}\n${githubIndexIdsDecl[0]}\n${applyMatch[0]}\nreturn applyCardSettings;`,
+)() as (config: Record<string, any>, patch: Record<string, any>) => { ok: boolean; error?: string }
 
 describe('configToEnv — keyed-engine snapshot', () => {
   it('carries engine API keys to the CLI', () => {
@@ -87,6 +99,83 @@ describe('configToEnv — keyed-engine snapshot', () => {
     // The engine reads its slice out of the same snapshot the host built.
     expect(readEngineEnvOptions('brave', env)).toEqual({ country: 'JP', offset: '3' })
     expect(readEngineEnvOptions('bing', env)).toEqual({})
+  })
+})
+
+/**
+ * The hop BELOW configToEnv: the browser's PUT. The engine dialog types the
+ * key into `searchEngineConfigs[id].apiKey` and this is the only code that
+ * moves it into `config.searchEngineApiKeys` — the map configToEnv ships.
+ * If that write ever disappears, the whole chain below still "works" (the
+ * summary shows a configured key, the flag is true) while the CLI receives
+ * an empty map and no keyed engine can ever authenticate. That is the exact
+ * half that was broken: `hasApiKey: true` was stored, the secret was not.
+ */
+describe('applyCardSettings — the browser PUT fills searchEngineApiKeys', () => {
+  it('stores the typed key and flips hasApiKey', () => {
+    const config: Record<string, any> = {}
+    expect(applyCardSettings(config, {
+      searchEngineConfigs: { brave: { endpoint: 'https://api.search.brave.com/res/v1/web/search', apiKey: 'bsa-secret', options: {} } },
+    })).toEqual({ ok: true })
+    expect(config.searchEngineApiKeys).toEqual({ brave: 'bsa-secret' })
+    expect(config.searchEngineConfigs.brave.hasApiKey).toBe(true)
+    // …and the map is what the CLI actually receives.
+    expect(JSON.parse(configToEnv(config)[KEYS_ENV])).toEqual({ brave: 'bsa-secret' })
+  })
+
+  it('keeps the stored key when the dialog reports an empty/absent field', () => {
+    // The input is write-only: reopening the dialog shows an empty box, and
+    // "save without typing" must NOT wipe a key the host already holds.
+    const config: Record<string, any> = { searchEngineApiKeys: { brave: 'bsa-secret' } }
+    applyCardSettings(config, { searchEngineConfigs: { brave: { apiKey: '', hasApiKey: true, options: {} } } })
+    expect(config.searchEngineApiKeys).toEqual({ brave: 'bsa-secret' })
+    applyCardSettings(config, { searchEngineConfigs: { brave: { hasApiKey: true, options: {} } } })
+    expect(config.searchEngineApiKeys).toEqual({ brave: 'bsa-secret' })
+    // An unrelated engine's save must not disturb it either.
+    applyCardSettings(config, { searchEngineConfigs: { searxng: { endpoint: 'http://127.0.0.1:8888', hasApiKey: false, options: {} } } })
+    expect(config.searchEngineApiKeys).toEqual({ brave: 'bsa-secret' })
+  })
+
+  it('round-trips a retyped key without leaking the old one', () => {
+    const config: Record<string, any> = { searchEngineApiKeys: { brave: 'old' } }
+    applyCardSettings(config, { searchEngineConfigs: { brave: { apiKey: 'new', hasApiKey: true, options: {} } } })
+    expect(config.searchEngineApiKeys).toEqual({ brave: 'new' })
+  })
+
+  it('never returns the key to the browser', () => {
+    const config: Record<string, any> = {}
+    applyCardSettings(config, { searchEngineConfigs: { brave: { apiKey: 'bsa-secret', hasApiKey: true, options: {} } } })
+    expect(JSON.stringify(summarize(config))).not.toContain('bsa-secret')
+  })
+
+  it('repairs a drifted flag: hasApiKey true with no stored key reads as false', () => {
+    // The live shape of the bug in a real profile: the browser reported a
+    // configured key (so the row badge was green) while the map the CLI reads
+    // was empty, so Brave was short-circuited as "no credential" with no
+    // error anywhere. The badge is a view of the map, never a stored claim.
+    const config: Record<string, any> = {
+      searchEngineConfigs: { brave: { endpoint: 'https://api.search.brave.com/res/v1/web/search', hasApiKey: true, options: {} } },
+    }
+    expect(summarize(config).searchEngineConfigs.brave.hasApiKey).toBe(false)
+    expect(KEYS_ENV in configToEnv(config)).toBe(false)
+
+    // Re-saving the engine without typing a key heals the snapshot instead of
+    // preserving the lie…
+    applyCardSettings(config, { searchEngineConfigs: { brave: { hasApiKey: true, endpoint: 'https://api.search.brave.com/res/v1/web/search', options: {} } } })
+    expect(config.searchEngineConfigs.brave.hasApiKey).toBe(false)
+    // …and a real key turns it on from the map alone.
+    applyCardSettings(config, { searchEngineConfigs: { brave: { apiKey: 'bsa-secret', options: {} } } })
+    expect(summarize(config).searchEngineConfigs.brave.hasApiKey).toBe(true)
+    expect(JSON.parse(configToEnv(config)[KEYS_ENV])).toEqual({ brave: 'bsa-secret' })
+  })
+
+  it('surfaces an engine that holds a key but no settings entry', () => {
+    // The row is only reachable through the view, so an engine saved straight
+    // into the key map (row config / hand-written config.yaml) would be
+    // invisible until it also got a searchEngineConfigs entry.
+    const view = summarize({ searchEngines: ['bing'], searchEngineApiKeys: { brave: 'bsa-secret' } })
+    expect(view.searchEngineConfigs.brave.hasApiKey).toBe(true)
+    expect(JSON.stringify(view)).not.toContain('bsa-secret')
   })
 })
 

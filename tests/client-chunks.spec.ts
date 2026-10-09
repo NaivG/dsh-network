@@ -343,6 +343,136 @@ describe('browser-half chunks render through the loader contract', () => {
     expect(adding).toContain('SearXNG')
   })
 
+  /**
+   * The credential hop, driven through the REAL dialog.
+   *
+   * Defect this pins: the engine dialog collected the typed API key into its
+   * own state, and the commit built the patch from `endpoint` / `hasApiKey` /
+   * `options` only — `apiKey` was dropped on the floor. The host therefore
+   * stored "a key is configured" and never a key: `config.searchEngineApiKeys`
+   * stayed empty, `configToEnv()` shipped an empty
+   * DSH_NETWORK_SEARCH_ENGINE_API_KEYS, and Brave could never authenticate no
+   * matter what the user pasted. Nothing in the UI showed an error — the
+   * status dot was green the whole time.
+   *
+   * `react-dom/server` drops event handlers, so this drives the components
+   * the way a click does: `createElement` is wrapped in a recording spy (the
+   * surfaces take `react` as a PROP, so the chunk uses ours), the recorded
+   * password input's `onChange` produces the next dialog state exactly as the
+   * typing would, the page re-renders with it, and the recorded save button's
+   * `onClick` produces the patch the host receives.
+   */
+  it('commits the typed engine API key into the saved patch', async () => {
+    const { entry, chunks } = await createChunkLoader().load()
+    const settings = chunks['client.settings.js']
+    const t = labelsFrom(entry)
+    const renderPage = settings.RenderNetworkPage as (props: Record<string, unknown>) => unknown
+    const body = await configBody({ searchEngines: ['bing', 'brave'] })
+
+    /** Render one paint with a recording createElement and return the elements. */
+    function paint(props: Record<string, unknown>) {
+      const captured: Array<Record<string, any>> = []
+      const spy = {
+        ...react,
+        createElement: (type: unknown, elementProps: unknown, ...children: unknown[]) => {
+          const element = react.createElement(type as never, elementProps as never, ...(children as never[]))
+          captured.push(element as unknown as Record<string, any>)
+          return element
+        },
+      }
+      renderNode(renderPage({
+        react: spy,
+        t,
+        draft: { ...body.value },
+        summary: body,
+        note: t.synced,
+        setKey: () => {},
+        setKeys: () => {},
+        testState: [{ status: 'idle', message: '' }, () => {}],
+        runLoopbackTest: () => {},
+        loaded: true,
+        addDialogState: [null, () => {}],
+        ...props,
+      }))
+      return captured
+    }
+
+    const noop = () => {}
+    let dialog: Record<string, any> | null = null
+    const setDlg = (next: Record<string, any>) => { dialog = next }
+
+    // Pass 1 — open the Brave dialog and "type" the subscription token.
+    const open = paint({ dialogState: [{ id: 'brave', endpoint: '', hasApiKey: false, options: {} }, setDlg] })
+    const keyInput = open.find((el) => el.props?.type === 'password')
+    expect(keyInput, 'the keyed engine dialog must render an API key field').toBeTruthy()
+    keyInput!.props.onChange({ target: { value: 'bsa-secret' } })
+    expect(dialog, 'typing must produce the next dialog state').toMatchObject({
+      apiKey: 'bsa-secret',
+      hasApiKey: true,
+    })
+
+    // Pass 2 — re-render with the typed state and click 保存.
+    let patch: Record<string, any> | null = null
+    const saved = paint({
+      dialogState: [dialog, noop],
+      setKeys: (next: Record<string, any>) => { patch = next },
+    })
+    const saveButton = saved.find((el) => el.props?.children === t.enginesEditSave)
+    expect(saveButton, 'the engine dialog must render its save button').toBeTruthy()
+    saveButton!.props.onClick()
+
+    expect(patch).toBeTruthy()
+    const entryForBrave = patch!.searchEngineConfigs.brave
+    // THE assertion: the secret rides the patch. `hasApiKey: true` alone left
+    // the CLI with an empty key map and no way to authenticate.
+    expect(entryForBrave.apiKey).toBe('bsa-secret')
+    expect(entryForBrave.hasApiKey).toBe(true)
+    // …and the map is merged, not replaced: an engine the dialog never
+    // touched keeps its own settings.
+    expect(patch!.searchEngineConfigs.searxng.endpoint).toBe('http://127.0.0.1:8888')
+  })
+
+  it('omits apiKey entirely when the dialog was saved without typing', async () => {
+    const { entry, chunks } = await createChunkLoader().load()
+    const settings = chunks['client.settings.js']
+    const t = labelsFrom(entry)
+    const renderPage = settings.RenderNetworkPage as (props: Record<string, unknown>) => unknown
+    const body = await configBody({ searchEngines: ['bing', 'brave'] })
+    const captured: Array<Record<string, any>> = []
+    const spy = {
+      ...react,
+      createElement: (type: unknown, elementProps: unknown, ...children: unknown[]) => {
+        const element = react.createElement(type as never, elementProps as never, ...(children as never[]))
+        captured.push(element as unknown as Record<string, any>)
+        return element
+      },
+    }
+    let patch: Record<string, any> | null = null
+    renderNode(renderPage({
+      react: spy,
+      t,
+      draft: { ...body.value },
+      summary: body,
+      note: t.synced,
+      setKey: () => {},
+      // Saving without typing must NOT ship an empty `apiKey: ''`: the host
+      // reads "non-empty string" as "store this key" and "absent" as "keep
+      // whatever you had", so an empty string is ambiguous by design and the
+      // field has to stay absent.
+      setKeys: (next: Record<string, any>) => { patch = next },
+      testState: [{ status: 'idle', message: '' }, () => {}],
+      runLoopbackTest: () => {},
+      loaded: true,
+      // A stored key already exists on the host; the row badge shows it.
+      dialogState: [{ id: 'brave', endpoint: '', hasApiKey: true, options: {} }, () => {}],
+      addDialogState: [null, () => {}],
+    }))
+    const saveButton = captured.find((el) => el.props?.children === t.enginesEditSave)
+    saveButton!.props.onClick()
+    expect(patch!.searchEngineConfigs.brave.hasApiKey).toBe(true)
+    expect('apiKey' in patch!.searchEngineConfigs.brave).toBe(false)
+  })
+
   it('renders the legacy Plugins-tab card', async () => {
     const { chunks } = await createChunkLoader().load()
     const Card = (chunks['client.settings.js'].ConfigCard as (...args: unknown[]) => unknown)(react, ui, localeRef)
