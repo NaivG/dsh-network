@@ -137,6 +137,51 @@ describe('applyCacheToFetch / applyCacheToHttp degrade', () => {
     expect(out.content).toBe(full)
     expect(out.cacheId).toBeUndefined()
   })
+
+  it('cuts the preview at the feed item boundary, not at the cap', () => {
+    const cache = new ResultCache()
+    const item = `${'#'.repeat(900)}\n`
+    const full = item.repeat(40)
+    const cut = item.length * 18
+    const entry = { content: full, contentType: 'text/markdown', finalUrl: 'https://f.test/rss', previewCutAt: cut, warnings: [] }
+    const out = applyCacheToFetch(entry, cache, 'fetch|markdown|https://f.test/rss')
+    expect(out.content.length).toBe(cut)
+    expect(out.content).toBe(full.slice(0, cut))
+    // The model resumes exactly where the preview stopped, on a whole entry.
+    const resumed = cache.slice(out.cacheId!, cut, SLICE_MAX_LIMIT)!
+    expect(resumed.body.startsWith(item)).toBe(true)
+    expect(entry.warnings?.some((w) => w.includes(`offset ${cut}`))).toBe(true)
+  })
+
+  it('ignores a boundary that would waste most of the allowance', () => {
+    const cache = new ResultCache()
+    const full = 'y'.repeat(INLINE_CAP * 2)
+    // Under the 40% floor, or not a usable offset at all: plain cut instead.
+    for (const cut of [Math.floor(INLINE_CAP * 0.3), 10, Number.NaN, undefined]) {
+      const out = applyCacheToFetch({ content: full, previewCutAt: cut, warnings: [] }, cache, `k${String(cut)}`)
+      expect(out.content.length).toBe(INLINE_CAP)
+    }
+    // A boundary inside the cap is honoured even when it is not the cap.
+    const near = applyCacheToFetch({ content: full, previewCutAt: INLINE_CAP - 1, warnings: [] }, cache, 'near')
+    expect(near.content.length).toBe(INLINE_CAP - 1)
+  })
+
+  it('remembers the boundary so a warm hit previews the same way', () => {
+    const cache = new ResultCache()
+    const item = `${'#'.repeat(900)}\n`
+    const full = item.repeat(40)
+    const cut = item.length * 18
+    const first = applyCacheToFetch(
+      { content: full, finalUrl: 'https://f.test/rss', previewCutAt: cut, warnings: [] },
+      cache,
+      'fetch|markdown|https://f.test/rss',
+    )
+    const warnings: string[] = []
+    const warm = serveCachedEntry(cache.getByKey('fetch|markdown|https://f.test/rss')!, warnings)
+    expect(warm.content).toBe(first.content)
+    expect(warm.content.length).toBe(cut)
+    expect(warm.degraded).toBe(true)
+  })
 })
 
 describe('ResultCache eviction', () => {

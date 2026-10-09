@@ -60,6 +60,21 @@ async function main() {
   const echoPort = echo.address().port
   console.log(`echo server on 127.0.0.1:${echoPort} (${echoBody.length} chars)`)
 
+  // 1b. A local feed server: one RSS document far larger than INLINE_CAP,
+  // served fresh on every request.
+  const feedBody = `<?xml version="1.0"?><rss version="2.0"><channel><title>Smoke feed</title>${Array.from(
+    { length: 40 },
+    (_v, i) =>
+      `<item><title>Entry ${i}</title><link>https://example.test/e${i}</link><description>${'padding '.repeat(200)}</description></item>`,
+  ).join('')}</channel></rss>`
+  const feed = createServer((req, res) => {
+    res.writeHead(200, { 'content-type': 'application/rss+xml' })
+    res.end(feedBody)
+  })
+  await new Promise((r) => feed.listen(0, '127.0.0.1', r))
+  const feedPort = feed.address().port
+  console.log(`feed server on 127.0.0.1:${feedPort} (${feedBody.length} chars of RSS)`)
+
   // 2. Spawn the built CLI in server mode — exactly like the host does
   // (plain `node cli.cjs server`, no special flags).
   const child = spawn(process.execPath, [CLI, 'server'], {
@@ -86,6 +101,7 @@ async function main() {
   } catch (error) {
     child.kill('SIGTERM')
     echo.close()
+    feed.close()
     throw error
   }
   const port = ready.port
@@ -170,6 +186,40 @@ async function main() {
     )
     console.log('dedup hit keeps degrade shape:', (aEntry.content || '').length, 'chars')
 
+    // 5d. A feed whose WHOLE render dwarfs INLINE_CAP: the tail must land
+    // in the cache instead of being dropped by a render budget.
+    const feedInvoke = await request(port, 'POST', '/invoke', JSON.stringify({
+      argv: ['fetch', '-u', `http://127.0.0.1:${feedPort}/rss.xml`, '--format', 'markdown', '--allow-private-network'],
+    }))
+    assert.equal(feedInvoke.status, 200)
+    const fEntry = feedInvoke.body.results[0]
+    assert.equal(fEntry.status, 'ok')
+    assert.ok(fEntry.cacheId, 'an over-cap feed must degrade to cacheId, not to a truncated inline body')
+    assert.ok(
+      fEntry.contentLength > INLINE_CAP * 2,
+      `the whole render must be cached, got ${fEntry.contentLength} chars`,
+    )
+    assert.ok(fEntry.content.length <= INLINE_CAP, 'the inline part stays a preview')
+    // The preview ends on a WHOLE item, so the model's next cacheId call
+    // starts at a readable boundary rather than mid-entry.
+    assert.match(fEntry.content, /padding$/)
+    const feedPage = await request(port, 'POST', '/invoke', JSON.stringify({
+      argv: ['fetch', '--cache-id', fEntry.cacheId, '--offset', String(fEntry.content.length), '--limit', '400'],
+    }))
+    assert.equal(feedPage.body.results[0].status, 'ok')
+    assert.match(feedPage.body.results[0].content, /^\n\n## \d+\./, 'paging resumes on an item boundary')
+    assert.ok(
+      (fEntry.warnings || []).some((w) => w.includes(`offset ${fEntry.content.length}`)),
+      'the warning must name the exact resume offset',
+    )
+    console.log(
+      'feed: preview',
+      fEntry.content.length,
+      'of',
+      fEntry.contentLength,
+      'chars cached; paging resumes at an item boundary',
+    )
+
     // 6. /health reports the cache.
     const health = await request(port, 'GET', '/health')
     assert.equal(health.status, 200)
@@ -187,6 +237,7 @@ async function main() {
   } finally {
     child.kill('SIGTERM')
     echo.close()
+    feed.close()
   }
 }
 

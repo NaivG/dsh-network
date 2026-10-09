@@ -62,6 +62,33 @@ only what you need to **change the code without breaking it**.
   a nav/footer/cookie-banner pre-filter that officeparser's HTML input does
   not provide. officeparser is for binary documents, where that noise profile
   does not exist.
+- **Feeds claim themselves by ROOT ELEMENT** (`src/feed.ts`, hand-written, no
+  XML dependency). A `<rss>` / `<feed>` / `<rdf:RDF>` root renders as a feed;
+  everything else — a `sitemap.xml`, an OPML export, a JS app shell — falls
+  through to `htmlToMarkdown` untouched, so `renderFeed` returning `null` is
+  the load-bearing part, not an error path. **The scanner must stay tolerant**:
+  an unescaped `&`, an unclosed `<link>` and `dc:` / `content:` / `itunes:`
+  namespaces are all normal in the wild, and a hard parse failure on a
+  model-facing fetch is worse than two missing fields.
+  - **Two caps, each reported in the output when it bites**: 8 000 chars per
+    item body (clipped on a block boundary, never mid-sentence) and a 500-item
+    render ceiling. There is deliberately NO whole-feed budget in server mode:
+    the server already downloaded every byte, so the full render goes to the
+    result cache — a dropped tail would cost a second GET against an origin
+    that serves a DIFFERENT feed on the next request. `previewCutAt` — the end
+    of the last complete item block under the inline cap — makes the preview a
+    whole number of entries. `pickPreviewLen`
+    applies that boundary with the same 40% anti-waste floor the body clipper
+    uses, and it rides along on the cached body so a warm hit on the same URL
+    previews identically. The single-shot CLI passes `maxTotalChars` and keeps
+    the 20 000-char whole-feed budget, because there the body has to cross a
+    stdout pipe with no cache behind it. `format: 'raw'` bypasses the
+    renderer entirely.
+  - The scanner keeps element content as an ORDERED list of text / CDATA /
+    element parts, and splits a close tag's qualified name the same way the
+    open tag's was. Comparing `</dc:date>` against a node whose `name` is
+    `date` never matches, so the element keeps nesting and every sibling
+    after it — including the next item — disappears into its text.
 - **Version-locked CLI**: `serverClient.js` resolves `dist/cli.cjs` relative
   to the plugin's own URL; `DSH_NETWORK_CLI` overrides it for tests.
 - **Cordis patch toppling** (`cordis.patch.yml`): pins both `web` seam
@@ -87,6 +114,11 @@ pass) goes through the same table. The rules that are load-bearing:
   resolved exactly once against the ORIGINAL string, so `&amp;lt;` yields
   `&lt;` and never a `<`. `htmlToMarkdown` decodes once at the very END,
   after `stripTags`, for that same reason.
+- **In a feed, CDATA is literal and character data is not** (`src/feed.ts`).
+  A `<![CDATA[…]]>` payload hands its `&amp;` to `htmlToMarkdown` raw and
+  lets the ONE final pass decode it; escaped character data is
+  `decodeEntities`-ed first and then converted. Decoding both, or neither,
+  is what turns a feed summary into `&amp;`-laden noise or a literal `<p>`.
 - **The whitespace pass runs even with no `&` in the string.** A fast path
   guarding on `includes('&')` silently skips U+00A0 normalization whenever
   the space is a raw character rather than an entity. The guard belongs on

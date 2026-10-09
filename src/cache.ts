@@ -54,6 +54,12 @@ export interface CachedBody {
   contentType: string
   /** Full body, stored server-side only. */
   content: string
+  /**
+   * Preferred preview length — the end of the last complete item block of a
+   * rendered feed. Remembered so a later warm hit on the same URL previews
+   * at the same place instead of cutting mid-item.
+   */
+  previewCutAt?: number | null
   createdAt: number
   hits: number
 }
@@ -73,6 +79,8 @@ export interface StoreOptions {
   url: string
   contentType: string
   content: string
+  /** See {@link CachedBody.previewCutAt}. */
+  previewCutAt?: number | null
 }
 
 export class ResultCache {
@@ -149,6 +157,7 @@ export class ResultCache {
       url: opts.url,
       contentType: opts.contentType,
       content: opts.content,
+      previewCutAt: opts.previewCutAt ?? null,
       createdAt: Date.now(),
       hits: 1,
     }
@@ -218,16 +227,36 @@ export class ResultCache {
 }
 
 /**
+ * How much of an oversized body to inline.
+ *
+ * A rendered feed hands down the end of its last complete item block
+ * (`previewCutAt`), so the preview is a whole number of entries and the
+ * model's next `cacheId` call lands on a boundary it can read. The 40%
+ * floor is the same anti-waste rule as the body clipper: a boundary that
+ * sits right at the cap must not throw away most of the allowance, and a
+ * boundary that is out of range is not a boundary at all.
+ */
+export function pickPreviewLen(length: number, previewCutAt?: number | null): number {
+  if (typeof previewCutAt !== 'number' || !Number.isInteger(previewCutAt)) return INLINE_CAP
+  if (previewCutAt <= INLINE_CAP * 0.4) return INLINE_CAP
+  return Math.min(previewCutAt, INLINE_CAP)
+}
+
+/**
  * Degrade a fetch entry: when its body exceeds INLINE_CAP, store the full
  * body in the cache and replace `content` with an inline preview + cacheId.
  * Mutates and returns `entry`. Without a cache (single-shot CLI) this is a
  * no-op — the full body is returned as before.
+ *
+ * `previewCutAt` is the feed renderer's item boundary; everything else
+ * previews with a plain cut at the cap.
  */
 export function applyCacheToFetch(
   entry: {
     content: string
     contentType?: string
     finalUrl?: string
+    previewCutAt?: number | null
     warnings?: string[]
   },
   cache: ResultCache | undefined,
@@ -245,11 +274,13 @@ export function applyCacheToFetch(
     url: entry.finalUrl ?? '',
     contentType: entry.contentType ?? '',
     content: full,
+    previewCutAt: entry.previewCutAt ?? null,
   })
-  const preview = full.slice(0, INLINE_CAP)
+  const previewLen = pickPreviewLen(full.length, entry.previewCutAt)
+  const preview = full.slice(0, previewLen)
   const warnings = Array.isArray(entry.warnings) ? entry.warnings : []
   warnings.push(
-    `Content is ${full.length.toLocaleString()} chars — previewed here; read the rest with web_fetch cacheId="${stored.id}" (offset/limit).`,
+    `Content is ${full.length.toLocaleString()} chars — previewed here; read the rest with web_fetch cacheId="${stored.id}" (offset ${previewLen}, limit).`,
   )
   entry.warnings = warnings
   return {
@@ -316,11 +347,14 @@ export function serveCachedEntry(
   if (cached.content.length <= INLINE_CAP) {
     return { content: cached.content, contentLength: cached.content.length, degraded: false }
   }
+  // Same item boundary as the first (degrading) call, so a repeat fetch of
+  // the same URL shows the model the same whole entries.
+  const previewLen = pickPreviewLen(cached.content.length, cached.previewCutAt)
   warnings.push(
-    `Content is ${cached.content.length.toLocaleString()} chars — previewed here; read the rest with cacheId="${cached.id}" (offset/limit).`,
+    `Content is ${cached.content.length.toLocaleString()} chars — previewed here; read the rest with cacheId="${cached.id}" (offset ${previewLen}, limit).`,
   )
   return {
-    content: cached.content.slice(0, INLINE_CAP),
+    content: cached.content.slice(0, previewLen),
     contentLength: cached.content.length,
     degraded: true,
   }

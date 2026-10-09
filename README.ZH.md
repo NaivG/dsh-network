@@ -36,6 +36,7 @@ DeepSeek Harness 自带 `web_search` 和 `web_fetch`, 在模型撞上下面这�
 
 - 长页面被截断。
 - 文档直链以二进制格式返回给模型。
+- 订阅源地址回来一大坨 XML, 而不是一份文章列表。
 - 两个工具还不算一套网络工具箱。
 - 其中没有任何环节是你能看到或者检查的。
 
@@ -49,8 +50,9 @@ DeepSeek Harness 自带 `web_search` 和 `web_fetch`, 在模型撞上下面这�
   (`web_sitemap`), 以及读写实时设置的 `web_config`。
 - **可引用的答案**——每条命中都带标题、链接、摘要和日期, 引擎意见不一致时还会
   显式给出不确定提示。
-- **文档以 Markdown 到达。** PDF、Word、PowerPoint、Excel、ODF 和 EPUB 响应
-  会被解析, 而不是丢一堆字节过来。
+- **文档与订阅源以 Markdown 到达。** PDF、Word、PowerPoint、Excel、ODF 和 EPUB
+  响应会被解析, 而不是丢一堆字节过来。RSS 2.0、RSS 1.0 (RDF) 与 Atom 1.0
+  订阅源会逐条渲染成 Markdown, 而不是一条 **？！惊天大区！？** XML 版。
 - **设置分区与侧边栏搜索面板**, 你可以调整引擎链顺序、粘贴密钥、自己搜索, 
   完全不用去改配置文件。改动在下一次工具调用时生效——无需重启。
 - **默认安全**——逐跳重定向 SSRF 校验、IP 固定、私有地址段拦截和协议锁, 全部
@@ -66,7 +68,7 @@ DeepSeek Harness 自带 `web_search` 和 `web_fetch`, 在模型撞上下面这�
 | 工具 | 作用 |
 |---|---|
 | `web_search` | 通过配置的引擎链搜索网络(默认 **Bing → DuckDuckGo → Baidu**)。返回可引用的来源(标题、链接、摘要、日期)、一段总结、状态标记和不确定提示。单次调用可以指定只用某一个引擎。 |
-| `web_fetch` | 抓取一个 HTTP(S) 地址, 默认返回 Markdown, 也可按需返回原始响应体, 并附带出站链接与告警。PDF、OOXML(`docx`/`pptx`/`xlsx`)、ODF(`odt`/`odp`/`ods`)和 EPUB 响应会被转成干净的 Markdown, 而不是二进制字节。 |
+| `web_fetch` | 抓取一个 HTTP(S) 地址, 默认返回 Markdown, 也可按需返回原始响应体, 并附带出站链接与告警。PDF、OOXML(`docx`/`pptx`/`xlsx`)、ODF(`odt`/`odp`/`ods`)和 EPUB 响应会被转成干净的 Markdown, 而不是二进制字节。**RSS 2.0、RSS 1.0 (RDF) 与 Atom 1.0 订阅源按根元素识别**——`<rss>`、`<feed>`、`<rdf:RDF>`——并逐条渲染, 于是订阅源读起来是带标题、日期、作者和链接的文章列表, 而不是原始 XML([细节](docs/cli.md#feeds))。 |
 | `http_request` | 发出底层 HTTP(S) 请求, 方法、请求头和请求体完全可控。 |
 | `web_sitemap` | 查询一张包含 **178** 个权威站点的精选表格——覆盖 arxiv、MDN、包注册表、问答站、政府、新闻、视频……共 23 个分类——可按域名、分类、优先级或自由文本查询定位, 并可选返回可直接粘贴使用的摘要。 |
 | `web_config` | 读取 dsh-network 的实时配置; 在你打开了安全开关后, 还能应用一个局部补丁(见[设置](#设置))。完整行为见[配置文档](docs/configuration.md#web_config-tool-and-the-safety-toggle)。 |
@@ -93,7 +95,9 @@ DeepSeek Harness 自带 `web_search` 和 `web_fetch`, 在模型撞上下面这�
 
 超过内联上限(约 20 KB)的 `web_fetch` / `http_request` 正文会先返回一段预览
 加上一个 `cacheId`, 模型再用一次调用翻完剩余部分——见
-[CLI 与缓存分页](docs/cli.md#cache-paging)。
+[CLI 与缓存分页](docs/cli.md#cache-paging)。超长的订阅源同样这样降级, 只是预览
+的截断点永远落在一条完整条目的末尾, 于是模型读完前几条后, 一次 `cacheId` 调用
+就能直接翻到第 40 条, 不必重新请求这个地址。
 
 ### 支持的搜索引擎
 

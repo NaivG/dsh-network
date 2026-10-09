@@ -37,6 +37,7 @@ amount of ground until the model walks into one of these walls:
 
 - Long pages come back cut off.
 - Direct links to documents are returned to the model in binary format.
+- A feed URL comes back as a wall of XML instead of a list of articles.
 - Two tools are not a web toolkit.
 - None of it is yours to inspect.
 
@@ -52,8 +53,10 @@ long-lived Node process:
   (`web_sitemap`), and `web_config` for the live settings.
 - **Answers you can cite** — title, link, snippet and date per hit, plus an
   explicit uncertainty note when the engines disagree.
-- **Documents arrive as Markdown.** PDF, Word, PowerPoint, Excel, ODF and EPUB
-  responses are parsed instead of handed over as bytes.
+- **Documents and feeds arrive as Markdown.** PDF, Word, PowerPoint, Excel,
+  ODF and EPUB responses are parsed instead of handed over as bytes. RSS 2.0,
+  RSS 1.0 (RDF) and Atom 1.0 feeds render as one Markdown entry per item —
+  title, date, author, link and body — instead of a wall of XML tags.
 - **A settings section and a sidebar search panel**, so you can reorder the
   chain, paste a key, and search yourself without editing a config file. Edits
   land on the next tool call — no restart.
@@ -70,7 +73,7 @@ stays claimed until you uninstall it.
 | Tool | What it does |
 |---|---|
 | `web_search` | Searches the web through the configured engine chain (default **Bing → DuckDuckGo → Baidu**). Returns citeable sources (title, link, snippet, date), a summary, a status flag, and uncertainty notes. One engine can be pinned per call. |
-| `web_fetch` | Fetches one HTTP(S) URL and returns Markdown by default or the raw body on request, with outgoing links and warnings. PDF, OOXML (`docx`/`pptx`/`xlsx`), ODF (`odt`/`odp`/`ods`), and EPUB responses are converted to clean Markdown instead of binary bytes. |
+| `web_fetch` | Fetches one HTTP(S) URL and returns Markdown by default or the raw body on request, with outgoing links and warnings. PDF, OOXML (`docx`/`pptx`/`xlsx`), ODF (`odt`/`odp`/`ods`), and EPUB responses are converted to clean Markdown instead of binary bytes. **RSS 2.0, RSS 1.0 (RDF) and Atom 1.0 feeds are recognized by their root element** — `<rss>`, `<feed>`, `<rdf:RDF>` — and rendered item by item, so a subscription reads as entries rather than raw XML ([details](docs/cli.md#feeds)). |
 | `http_request` | Issues a low-level HTTP(S) request with full method, header, and body control. |
 | `web_sitemap` | Looks up a curated table of **178** authoritative portals — 23 categories spanning arxiv, MDN, package registries, Q&A sites, government, news, video… — by domain, category, priority, or free-text query, optionally returning a paste-able digest. |
 | `web_config` | Reads the live dsh-network configuration, or applies a partial patch when you have enabled the safety toggle (see [Settings](#settings)). Full behaviour: [configuration.md](docs/configuration.md#web_config-tool-and-the-safety-toggle). |
@@ -98,7 +101,10 @@ row over the result body:
 
 `web_fetch` / `http_request` bodies above the inline cap (about 20 KB) come
 back as a preview plus a `cacheId`, and the model pages through the rest with
-one more call — see [CLI and cache paging](docs/cli.md#cache-paging).
+one more call — see [CLI and cache paging](docs/cli.md#cache-paging). An
+oversized feed degrades the same way, but its preview always stops on a whole
+entry boundary, so the model can read the first items and jump straight to
+entry 40 with one `cacheId` call instead of re-fetching the URL.
 
 ### Support search engines
 

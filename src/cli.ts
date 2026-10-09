@@ -39,6 +39,7 @@
  */
 import { runClientFetch } from './client.ts'
 import { fetchPage } from './fetch.ts'
+import { DEFAULT_MAX_TOTAL_CHARS } from './feed.ts'
 import { runHttpRequest } from './http_request.ts'
 import { isPrivateHost, parseHttpUrl } from './network.ts'
 import {
@@ -811,6 +812,12 @@ async function runFetch_(flags: CliFlags, config: ParsedConfig, cache?: ResultCa
       redirectProtection: flags.redirectProtection,
       protocolLock: flags.protocolLock,
       headers: flags.headers,
+      // With a result cache behind it, a feed is rendered WHOLE: the cache
+      // carries the tail and the model pages it by cacheId, an in-memory
+      // slice that costs no second GET. Without one the whole render would
+      // have to cross a child-process stdout pipe, so the inline budget
+      // applies.
+      feedBudget: cache ? null : DEFAULT_MAX_TOTAL_CHARS,
     })
     const warnings: string[] = [...r.warnings]
     if (r.truncated) warnings.push(`Content truncated at ${config.maxBodyChars} characters.`)
@@ -850,6 +857,7 @@ async function runFetch_(flags: CliFlags, config: ParsedConfig, cache?: ResultCa
         content: r.content,
         contentType: r.contentType,
         finalUrl: r.finalUrl,
+        previewCutAt: r.previewCutAt,
         warnings,
       },
       cache,

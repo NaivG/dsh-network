@@ -25,6 +25,82 @@ order. See [search-engines.md](search-engines.md).
 it found — engine chain, timeouts, `apiKeys=[brave=no key]` — without
 contacting anything, which makes it safe offline and safe for a billed engine.
 
+### Feeds
+
+A body whose **root element** is `<rss>`, `<feed>` or `<rdf:RDF>` is rendered
+as a feed instead of being pushed through the HTML→Markdown converter, which
+knows nothing about `<item>` and would flatten a whole feed into one unlabeled
+wall of text. Detection is by root element, not content type, because feeds
+are routinely served as `text/html` or plain `application/xml`; a
+`sitemap.xml`, an OPML export or a JS app shell never matches and falls
+through untouched. RSS 2.0, RSS 1.0 (RDF) and Atom 1.0 are all covered.
+
+```markdown
+# Hacker News 中文摘要 - 每日 AI 论文精选 | Zeli
+
+Home: <https://zeli.app/zh>
+Feed: <https://zeli.app/zh/rss.xml>
+
+实时翻译 Hacker News 首页每条热帖……
+
+## 1. HN Digest 2026-10-08 · 美国叫停科技公司签证
+
+2026-10-08 · <https://zeli.app/zh/digest/2026-10-08>
+
+- [美国叫停科技公司签证](https://zeli.app/zh/story/50006832) — ▲ 865 · …
+```
+
+- `Feed:` is the `rel="self"` URL — the one to subscribe to.
+- `format: 'raw'` returns the XML verbatim, unrendered.
+- Item bodies are HTML and go through the same converter as a web page.
+- `links` stays empty: every URL is already in the body, and the host
+  renderer prints `links` into the answer text.
+
+**Token budget — in server mode the cache carries the tail.** One item's body
+is still clipped at 8 000 characters, on a block boundary and never
+mid-sentence, and the clip states the real rendered length:
+
+```
+_… body clipped at 8000 of 37373 characters._
+```
+
+The WHOLE feed carries no character budget, and the item count is not capped at
+25 either. The server already downloaded every byte, so the complete render
+goes to the result cache — discarding the tail would force a second GET against
+an origin that serves a *different* feed on the next request. The inline part
+is previewed at the end of the last WHOLE item under 20 000 characters:
+
+```json
+{
+  "content": "# Hacker News … ## 7. Entry 6 …",
+  "cacheId": "9f2c…",
+  "contentLength": 65823,
+  "warnings": ["Content is 65,823 chars — previewed here; read the rest with web_fetch cacheId=\"9f2c…\" (offset 19735, limit)."]
+}
+```
+
+`web_fetch cacheId=… offset=19735` then serves the rest from server memory —
+no network at all — and resumes on an item boundary, so the model reads whole
+entries instead of fragments. A warm hit on the same URL previews at the same
+place.
+
+Only the single-shot CLI (no cache behind it, so the body would have to cross
+a child-process stdout pipe) keeps the 20 000-character whole-feed budget, and
+there the cut is stated in place:
+
+```
+_… 5 more of 7 items not shown (rendered 2 of 7 within a 20000-character budget). Re-fetch with format=raw for the source._
+```
+
+The 500-item render ceiling is the one stop that applies in both modes, and it
+exists to bound work on a pathological document rather than to save context.
+
+Parsing is a hand-written tolerant scanner (`src/feed.ts`), no XML
+dependency: real feeds carry unescaped `&`, unclosed `<link>`, `dc:` /
+`content:` / `itunes:` namespaces and HTML entities inside CDATA, and a
+strict parser turns any of those into a hard failure. DOCTYPEs — internal
+subsets and `<!ENTITY>` included — are skipped, never expanded.
+
 ## Shared options
 
 | Flag | Meaning | Default |

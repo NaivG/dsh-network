@@ -96,6 +96,22 @@ engine ever joins the default chain.
   input format does not provide, and the existing converter is tuned for
   that noise profile. officeparser's value is for binary documents, where
   the noise problem does not exist.
+- Feeds get their own renderer (`src/feed.ts`, also hand-written, no XML
+  dependency) and are claimed by ROOT ELEMENT, ahead of the HTML branch in
+  `src/fetch.ts`: a body opening with `<rss>`, `<feed>` or `<rdf:RDF>` becomes
+  a labelled, per-item Markdown view; a `sitemap.xml`, an OPML export or a JS
+  app shell does not match and falls through untouched. The point is labelling
+  — the HTML converter has no notion of `<item>`, and a feed is the one
+  document type that arrives enormous. The renderer emits a `previewCutAt` —
+  the end of the last complete item block under the inline cap — so the
+  cache degrades an oversized feed at an item boundary and the model pages it
+  by `cacheId` with no second network GET. See [cli.md](cli.md#feeds) for the
+  rendered shape and the two remaining caps (per-item body, 500-item ceiling).
+- A tolerant scanner, not a strict parser: an unescaped `&`, an unclosed
+  `<link>`, `dc:` / `content:` / `itunes:` namespaces and HTML entities inside
+  CDATA are all routine in real feeds. DOCTYPEs — internal subsets and
+  `<!ENTITY>` included — are skipped, never expanded, so there is no entity
+  expansion to abuse.
 
 ## Search engine registry
 
