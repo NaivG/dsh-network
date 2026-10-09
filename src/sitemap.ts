@@ -239,7 +239,7 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'docs.flutter.dev', description: 'Flutter 官方文档', category: 'docs', priority: 8, searchUrl: `https://docs.flutter.dev/search?q={query}`, tags: ['flutter', 'dart'] },
   { domain: 'api.flutter.dev', description: 'Flutter API 文档', category: 'docs', priority: 9, searchUrl: `https://api.flutter.dev/search?q={query}`, tags: ['flutter', 'dart'] },
   { domain: 'doc.openvela.com', description: 'OpenVela 官方文档', category: 'docs', priority: 8, searchUrl: `https://doc.openvela.com/search?keywords={query}`, tags: ['openvela', 'vela'] },
-  { domain: 'iot.mi.com/vela/quickapp', description: 'Vela JS 快应用官方文档', category: 'docs', priority: 8, tags: ['vela', 'velajs'] },
+  { domain: 'iot.mi.com', description: '小米 IoT 开发者平台', category: 'docs', priority: 8, tags: ['vela', 'iot', '快应用', 'xiaomi'] },
 
   // ── manuals (product / vendor docs) ──
   { domain: 'docs.aws.amazon.com', description: 'AWS 官方文档', category: 'manuals', priority: 9, searchUrl: `https://docs.aws.amazon.com/search/doc-search.html?searchPath=documentation&searchQuery={query}`, tags: ['aws', 'amazon', 'cloud'], pathHints: [`/{service}/latest/{path}`] },
