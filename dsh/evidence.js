@@ -51,6 +51,60 @@ function compactPresentation(meta) {
   return out
 }
 
+/**
+ * Deep JSON-safe projection: drop every `undefined` at EVERY depth.
+ *
+ * `compactPresentation()` only scrubs the top level, which is enough for the
+ * flat metas the other tools build but NOT for `web_config`, whose card meta
+ * carries the live config summary. `summarize()` emits `endpoint: undefined`
+ * for an engine that has no endpoint override, and the harness validates each
+ * meta with a strict `JSON.parse(JSON.stringify(meta))` deep-equal against the
+ * original — a nested `undefined` is silently dropped by `JSON.stringify`, so
+ * the very first `web_config` call after a user cleared an engine endpoint
+ * would be rejected with "output.presentationMeta returned non-lossless JSON"
+ * and the model would never see its own config.
+ *
+ * Non-finite numbers collapse to `null` for the same reason (`JSON.stringify`
+ * turns `NaN` / `Infinity` into `null`). Functions, symbols and `bigint` are
+ * dropped like `undefined`; an array hole becomes `null`, because a hole
+ * round-trips as one and the length must not shift. `depth` is a recursion
+ * fence — this value is card decoration, never worth a stack overflow.
+ */
+function jsonSafeMeta(value, depth = 0) {
+  if (value === null) return null
+  const type = typeof value
+  if (type === 'string' || type === 'boolean') return value
+  if (type === 'number') return Number.isFinite(value) ? value : null
+  if (type !== 'object') return undefined
+  if (depth > 12) return undefined
+  if (Array.isArray(value)) {
+    return value.map((item) => {
+      const safe = jsonSafeMeta(item, depth + 1)
+      return safe === undefined ? null : safe
+    })
+  }
+  const out = {}
+  for (const key of Object.keys(value)) {
+    const safe = jsonSafeMeta(value[key], depth + 1)
+    if (safe !== undefined) out[key] = safe
+  }
+  return out
+}
+
+/**
+ * Clip a tool body down to the card-side preview cap, marking the cut with a
+ * single trailing `…`.
+ *
+ * Both `web_fetch` (contentPreview) and `http_request` (bodyPreview) persist a
+ * preview in their `presentationMeta`, and their rows tell a truncated preview
+ * from a complete one by exactly that marker — so the clip lives here, once,
+ * rather than as a `slice(0, N) + '…'` inline in each registration.
+ */
+function previewText(text, cap = RENDER_CONTENT_CAP) {
+  const body = typeof text === 'string' ? text : ''
+  return body.length > cap ? `${body.slice(0, cap)}…` : body
+}
+
 function renderSearchEvidence(value) {
   const lines = []
   if (value.status === 'degraded') {
@@ -275,6 +329,8 @@ function renderSitemapEvidence(value) {
 export {
   toSearchSources,
   compactPresentation,
+  jsonSafeMeta,
+  previewText,
   renderSearchEvidence,
   toHostCacheSlice,
   renderFetchEvidence,

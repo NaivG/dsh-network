@@ -9,7 +9,7 @@
 [English](README.md) | **简体中文**
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc1-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc2-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
 [![Listed on DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-zh.svg)](https://dsh.market/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/naivg/dsh-network)
@@ -91,7 +91,18 @@ DeepSeek Harness 自带 `web_search` 和 `web_fetch`, 在模型撞上下面这�
 
 `http_request` 工具
 
+<img src="assets/config-tool.png" width="600" alt="web_config 卡片"/>
+
+`web_config` 工具
+
 </div>
+
+`web_config` 也一样。读取时收成一行 `网络配置 · 读取配置 · N 个引擎`; 写入时
+自动展开, 逐条列出改动的字段**以及真正存进去的值**——模型要 `searchMaxResults: 50`
+而宿主钳到 20 时, 卡片显示的是那次钳制的结果, 而不是它请求的数字; 被安全开关拒绝
+的写入则显示成琥珀色的「已被拒绝」块, 既不会伪装成静默无操作, 也不会列出一串
+根本没发生的改动。当前配置本身以分组形式列在下面(引擎链带密钥标记、超时、保护项、
+白名单、上限、工具开关、GitHub), 最底下是原始 JSON。
 
 超过内联上限(约 20 KB)的 `web_fetch` / `http_request` 正文会先返回一段预览
 加上一个 `cacheId`, 模型再用一次调用翻完剩余部分——见

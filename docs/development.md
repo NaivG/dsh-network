@@ -58,9 +58,11 @@ Unit specs (vitest, zero network unless noted):
   factory return value = record exports) with `react` as the only seed
   word, then renders the rows with `react-dom/server`. Pins the memo-aware
   `isRenderable` contract (a memo-shaped `MarkdownText` must be USED, not
-  bypassed) and the degraded `{ Input }` fallback. Only `react` +
-  `react-dom` are needed — `MarkdownText` itself is stubbed, so no dsh
-  install is required.
+  bypassed) and the degraded `{ Input }` fallback, plus the `web_fetch` row's
+  own contract: the page renders as markdown, a `format: 'raw'` body stays
+  monospace, a paging hint quotes the ABSOLUTE next offset, and a thrown call
+  shows its error instead of shimmering. Only `react` + `react-dom` are
+  needed — `MarkdownText` itself is stubbed, so no dsh install is required.
 - `tests/client-chunks.spec.ts` — the CHUNK contract, and the guard that
   catches "the settings page stopped rendering": (a) builds a TypeScript
   `checkJs` program over all four client files and fails on any unresolved
@@ -114,7 +116,7 @@ dsh-network/
 │   ├── index.js                # contract exports + apply() wiring
 │   ├── schemas.js              # tool JSON Schemas + enum vocabularies
 │   ├── cli-runner.js           # server-client singleton + runCli/runCliSoft
-│   ├── evidence.js             # model-facing evidence rendering
+│   ├── evidence.js             # model-facing evidence rendering + previewText clip + jsonSafeMeta
 │   ├── providers.js            # web seam providers (search/fetch)
 │   ├── tools.js                # the five tool registrations
 │   ├── routes.js               # /dsh-network/config|health|search routes
@@ -124,7 +126,7 @@ dsh-network/
 │   ├── spawnHidden.js          # child-process boundary
 │   ├── client.js               # BROWSER entry: shared surface + apply()
 │   ├── client.settings.js      # chunk: "网络" settings section + legacy card
-│   ├── client.toolviews.js     # chunk: toolview rows + dshn-* styles
+│   ├── client.toolviews.js     # chunk: 5 toolview rows + dshn-* styles
 │   └── client.searchpanel.js   # chunk: sidebar search panel
 ├── src/                        # CLI (vite SSR build → dist/cli.cjs)
 │   ├── cli.ts                  # argv parsing → search/fetch/http/sitemap/doctor/server

@@ -1,11 +1,11 @@
 /* dsh-web browser half for dsh-network — tool-call card renderers
  * (package-local chunk, materialized via require.async from dsh/client.js).
  *
- * Three `tool.call.toolview` rows (web_search / http_request / web_sitemap)
- * styled to read like dsh's own first-party tool cards — a borderless
- * disclosure row over a WebBlock-styled body card — plus the legacy
- * `tool.web.item` / `tool.web.fetch.item` block renderers for older dsh
- * builds. All renderers are reactive, fall back to the raw body when a
+ * Five `tool.call.toolview` rows (web_search / http_request / web_fetch /
+ * web_sitemap / web_config) styled to read like dsh's own first-party tool
+ * cards — a borderless disclosure row over a WebBlock-styled body card — plus
+ * the legacy `tool.web.item` / `tool.web.fetch.item` block renderers for older
+ * dsh builds. All renderers are reactive, fall back to the raw body when a
  * piece of structured data is missing, and never mutate session state.
  *
  * Chunk protocol: this file sits next to dsh/client.js and matches the
@@ -51,7 +51,6 @@ window.__ModuleLoader__.load({
           color: tone === 'warn' ? '#a16207' : tone === 'uncertain' ? '#475569' : tone === 'ok' ? '#16a34a' : tone === 'error' ? '#dc2626' : 'inherit',
           background: tone === 'warn' ? 'rgba(250, 204, 21, 0.15)' : tone === 'uncertain' ? 'rgba(148, 163, 184, 0.18)' : tone === 'ok' ? 'rgba(34, 197, 94, 0.15)' : tone === 'error' ? 'rgba(220, 38, 38, 0.12)' : 'transparent',
           border: '1px solid rgba(127,127,127,0.35)',
-          fontFamily: 'var(--dsw-alias-mono, monospace)',
         },
       }, label)
     }
@@ -133,19 +132,19 @@ window.__ModuleLoader__.load({
         },
           react.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' } },
             meta.engine && react.createElement('span', {
-              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)', fontFamily: 'var(--dsw-alias-mono, monospace)' },
+              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)' },
             }, 'engine: ' + meta.engine),
             typeof meta.statusCode === 'number' && react.createElement('span', {
-              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)', fontFamily: 'var(--dsw-alias-mono, monospace)' },
+              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)' },
             }, 'HTTP ' + meta.statusCode),
             typeof meta.contentType === 'string' && react.createElement('span', {
-              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)', fontFamily: 'var(--dsw-alias-mono, monospace)' },
+              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)' },
             }, meta.contentType.split(';')[0]),
             typeof meta.linksCount === 'number' && react.createElement('span', {
-              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)', fontFamily: 'var(--dsw-alias-mono, monospace)' },
+              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', border: '1px solid rgba(127,127,127,0.35)' },
             }, meta.linksCount + ' outgoing links'),
             meta.truncated && react.createElement('span', {
-              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', color: '#a16207', background: 'rgba(250, 204, 21, 0.15)', border: '1px solid rgba(127,127,127,0.35)', fontFamily: 'var(--dsw-alias-mono, monospace)' },
+              style: { display: 'inline-block', padding: '1px 6px', fontSize: '11px', lineHeight: 1.4, borderRadius: '6px', color: '#a16207', background: 'rgba(250, 204, 21, 0.15)', border: '1px solid rgba(127,127,127,0.35)' },
             }, 'truncated'),
           ),
           uncertainty.length ? react.createElement('ul', { style: { paddingLeft: '18px', margin: '6px 0', fontSize: '12px' } },
@@ -274,6 +273,46 @@ window.__ModuleLoader__.load({
       '.dshn-resolved-domain{flex:none;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));min-width:0}',
       '.dshn-resolved-link{flex:1 1 auto;min-width:0;color:var(--dsw-alias-link,inherit);text-decoration:none;overflow-wrap:anywhere}',
       '.dshn-resolved-link:hover,.dshn-resolved-link:focus-visible{text-decoration:underline dotted;text-underline-offset:3px}',
+      // web_fetch body: the page is Markdown, so it renders through the host's
+      // MarkdownText inside a scroll box — a long article must not push the
+      // rest of the transcript off screen.
+      '.dshn-page{max-height:480px;overflow-y:auto;overflow-x:hidden;min-width:0;margin-bottom:8px}',
+      // Outgoing-links list (web_fetch): the link label anchors, the raw URL
+      // sits dimmed next to it, both ellipsized in a two-column row.
+      '.dshn-links{margin-top:10px;border-top:1px solid var(--dsw-alias-border-l2,rgba(127,127,127,0.22));padding-top:8px;display:flex;flex-direction:column;gap:4px;max-height:240px;overflow-y:auto}',
+      '.dshn-links-title{margin:0 0 2px;font-size:11px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8))}',
+      '.dshn-link-row{display:flex;align-items:baseline;gap:10px;font-size:12px;line-height:18px;min-width:0}',
+      '.dshn-link-text{flex:0 1 auto;min-width:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-link,inherit);text-decoration:none}',
+      '.dshn-link-text:hover,.dshn-link-text:focus-visible{text-decoration:underline dotted;text-underline-offset:3px}',
+      '.dshn-link-url{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-alias-mono,monospace);font-size:11px}',
+      // web_config card: the config itself, as label/value rows grouped by
+      // surface, plus chips for the closed vocabularies (engine chain, host
+      // allowlist, protection + tool switches). Same geometry as the other
+      // rows' sub-blocks so a config call sitting next to a fetch call reads as
+      // one card family.
+      '.dshn-cfg{display:flex;flex-direction:column;gap:12px;min-width:0}',
+      '.dshn-cfggroup{display:flex;flex-direction:column;gap:4px;min-width:0}',
+      '.dshn-cfggroup-title{margin:0;font-size:11px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8))}',
+      '.dshn-cfgrow{display:flex;align-items:baseline;gap:12px;font-size:12px;line-height:18px;min-width:0}',
+      '.dshn-cfgname{flex:0 0 150px;min-width:0;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));overflow-wrap:anywhere}',
+      '.dshn-cfgvalue{flex:1 1 auto;min-width:0;color:var(--dsw-alias-label-primary,inherit);overflow-wrap:anywhere}',
+      '.dshn-cfgvalue[data-mono]{font:var(--dsw-alias-mono,monospace);font-size:11px;line-height:17px}',
+      '.dshn-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}',
+      '.dshn-chip{display:inline-block;flex:none;padding:1px 6px;font-size:10px;font-weight:600;line-height:14px;border-radius:4px;background:var(--dsw-alias-bg-layer-2,rgba(127,127,127,0.08));border:1px solid var(--dsw-alias-border-l1,rgba(127,127,127,0.22));color:var(--dsw-alias-label-secondary,inherit);font:var(--dsw-alias-mono,monospace);letter-spacing:0.2px}',
+      // A switch chip carries its state as an attribute: on = the accent green,
+      // off = dimmed, and a keyed engine marks the credential it holds.
+      '.dshn-chip[data-state="on"]{color:var(--dsw-alias-state-success-primary,#16a34a)}',
+      '.dshn-chip[data-state="off"]{opacity:0.6}',
+      '.dshn-chip[data-state="key"]{color:var(--dsw-alias-state-warning-primary,#d97706)}',
+      // Refused (NOT failed): the safety gate answered a soft `status: 'error'`
+      // with the config untouched, so the block is amber rather than red — an
+      // alert-red card would read as a crash the user has to fix.
+      '.dshn-refused{border-left:3px solid var(--dsw-alias-state-warning-primary,#d97706);padding-left:10px;display:flex;flex-direction:column;gap:4px;min-width:0}',
+      '.dshn-refused-title{font-size:12px;font-weight:600;letter-spacing:0.2px;color:var(--dsw-alias-state-warning-primary,#d97706)}',
+      '.dshn-refused-detail{white-space:pre-wrap;overflow-wrap:anywhere;margin:0;color:var(--dsw-alias-label-secondary,rgba(127,127,127,0.9));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-details{margin-top:4px;color:var(--dsw-alias-label-tertiary,rgba(127,127,127,0.8));font:var(--dsw-font-xs-13,12px)}',
+      '.dshn-details summary{cursor:pointer}',
+      '.dshn-details pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:inherit;max-height:280px;overflow:auto}',
     ].join('')
     var TOOLVIEW_CSS_TAG = 'style[data-plugin-css="dsh-network/toolview.module.css"]'
     /** Inject the toolview stylesheet once; skipped where document.head is absent (tests, SSR). */
@@ -308,6 +347,12 @@ window.__ModuleLoader__.load({
     // Sitemap / tree icon for web_sitemap — three boxes connected by
     // horizontal + vertical lines, representing a hierarchical catalog.
     var SITEMAP_ICON_PATH = 'M3 3h6v4H3zM15 3h6v4h-6zM9 17h6v4H9zM6 7v4h12V7M12 11v6'
+    // Document icon for web_fetch — the Material `description` glyph (a sheet
+    // with a folded corner and three text lines).
+    var DOCUMENT_ICON_PATH = 'M14 2H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'
+    // Sliders icon for web_config — the Material `tune` glyph (three rails with
+    // a knob each), i.e. "settings", not a second globe.
+    var TUNE_ICON_PATH = 'M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z'
 
     // ───────── shared toolview helpers ─────────
     // The ToolResultNode shape (records.d.ts in @deepseek-ai/dsh-client-ui-chat)
@@ -376,6 +421,65 @@ window.__ModuleLoader__.load({
       return {}
     }
 
+    // ───────── shared row primitives ─────────
+    // Chunk scope, not per component: all four rows need them and the
+    // per-component copies had already drifted (the http row grew a
+    // `raw`-safe `safeContentType` the sitemap row never had). They take
+    // `react` as their first argument because a chunk has no view of the
+    // entry's file scope — `react` arrives per component from apply().
+    function flowIcon(react, pathD, stroke) {
+      return react.createElement('svg', {
+        viewBox: '0 0 24 24',
+        fill: stroke ? 'none' : 'currentColor',
+        stroke: stroke ? 'currentColor' : 'none',
+        strokeWidth: stroke ? 2 : undefined,
+        strokeLinecap: stroke ? 'round' : undefined,
+        strokeLinejoin: stroke ? 'round' : undefined,
+        'aria-hidden': true,
+      }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
+    }
+
+    /** http(s) URLs only — mirrors the primitives' SafeLink allowlist, so a
+     *  `javascript:`/`data:` URL never reaches the DOM as an href. */
+    function safeHref(url) {
+      if (typeof url !== 'string' || url === '') return null
+      try {
+        var protocol = new URL(url).protocol
+        return protocol === 'http:' || protocol === 'https:' ? url : null
+      } catch (error) { return null }
+    }
+
+    /** Title or hostname label, never blank (mirrors WebBlock's linkLabel). */
+    function linkLabel(url, fallback) {
+      if (typeof fallback === 'string' && fallback !== '') return fallback
+      try {
+        var hostname = new URL(url).hostname
+        return hostname === '' ? url : hostname
+      } catch (error) { return url }
+    }
+
+    /** `text/html; charset=utf-8` → `text/html`. */
+    function safeContentType(raw) {
+      if (typeof raw !== 'string' || raw === '') return ''
+      return raw.split(';')[0].trim().toLowerCase()
+    }
+
+    /** Badge tone for an HTTP status code. */
+    function statusTone(code) {
+      if (!Number.isInteger(code)) return 'meta'
+      if (code >= 200 && code < 300) return 'ok'
+      if (code >= 300 && code < 400) return 'meta'
+      if (code >= 400 && code < 500) return 'warn'
+      return 'error'
+    }
+
+    /** Fill `{name}` placeholders in a locale label (see fetchToolPaged). */
+    function fill(template, values) {
+      return String(template == null ? '' : template).replace(/\{(\w+)\}/g, function (match, key) {
+        return Object.prototype.hasOwnProperty.call(values, key) ? String(values[key]) : match
+      })
+    }
+
     function SearchToolview(react, ui, localeRef) {
       var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
       var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
@@ -385,18 +489,6 @@ window.__ModuleLoader__.load({
       var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
 
       ensureToolviewStyles()
-
-      function flowIcon(pathD, stroke) {
-        return react.createElement('svg', {
-          viewBox: '0 0 24 24',
-          fill: stroke ? 'none' : 'currentColor',
-          stroke: stroke ? 'currentColor' : 'none',
-          strokeWidth: stroke ? 2 : undefined,
-          strokeLinecap: stroke ? 'round' : undefined,
-          strokeLinejoin: stroke ? 'round' : undefined,
-          'aria-hidden': true,
-        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
-      }
 
       /** The call's parsed arguments: see the shared `argsOf` helper above. */
 
@@ -408,25 +500,6 @@ window.__ModuleLoader__.load({
           return args.queries.filter(function (q) { return typeof q === 'string' && q.trim() !== '' })
         }
         return typeof args.query === 'string' && args.query.trim() !== '' ? [args.query] : []
-      }
-
-      /** http(s) URLs only — mirrors the primitives' SafeLink allowlist, so a
-       *  `javascript:`/`data:` URL never reaches the DOM as an href. */
-      function safeHref(url) {
-        if (typeof url !== 'string' || url === '') return null
-        try {
-          var protocol = new URL(url).protocol
-          return protocol === 'http:' || protocol === 'https:' ? url : null
-        } catch (error) { return null }
-      }
-
-      /** Title or hostname label, never blank (mirrors WebBlock's linkLabel). */
-      function linkLabel(url, title) {
-        if (typeof title === 'string' && title !== '') return title
-        try {
-          var hostname = new URL(url).hostname
-          return hostname === '' ? url : hostname
-        } catch (error) { return url }
       }
 
       function sourceList(sources) {
@@ -541,12 +614,12 @@ window.__ModuleLoader__.load({
         // CSS), chevron-up while expanded — the DisclosureRow pattern.
         var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
           open
-            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
             : [
                 react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' },
-                  IconGlobe ? react.createElement(IconGlobe, { size: 14 }) : flowIcon(GLOBE_ICON_PATH, false)),
+                  IconGlobe ? react.createElement(IconGlobe, { size: 14 }) : flowIcon(react, GLOBE_ICON_PATH, false)),
                 react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
-                  IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+                  IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
               ],
         )
 
@@ -617,18 +690,6 @@ window.__ModuleLoader__.load({
 
       ensureToolviewStyles()
 
-      function flowIcon(pathD, stroke) {
-        return react.createElement('svg', {
-          viewBox: '0 0 24 24',
-          fill: stroke ? 'none' : 'currentColor',
-          stroke: stroke ? 'currentColor' : 'none',
-          strokeWidth: stroke ? 2 : undefined,
-          strokeLinecap: stroke ? 'round' : undefined,
-          strokeLinejoin: stroke ? 'round' : undefined,
-          'aria-hidden': true,
-        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
-      }
-
       // Two-path "code" icon (left chevron + right chevron), matching the
       // Material Icons `code` glyph used by dsh's primitives exports.
       function codeIcon() {
@@ -640,27 +701,6 @@ window.__ModuleLoader__.load({
         }, CODE_ICON_PATHS.map(function (d, pi) {
           return react.createElement('path', { key: pi, d: d, fill: 'none' })
         }))
-      }
-
-      function safeHref(url) {
-        if (typeof url !== 'string' || url === '') return null
-        try {
-          var protocol = new URL(url).protocol
-          return protocol === 'http:' || protocol === 'https:' ? url : null
-        } catch (error) { return null }
-      }
-
-      function safeContentType(raw) {
-        if (typeof raw !== 'string' || raw === '') return ''
-        return raw.split(';')[0].trim().toLowerCase()
-      }
-
-      function statusTone(code) {
-        if (!Number.isInteger(code)) return 'meta'
-        if (code >= 200 && code < 300) return 'ok'
-        if (code >= 300 && code < 400) return 'meta'
-        if (code >= 400 && code < 500) return 'warn'
-        return 'error'
       }
 
       return function DshNetworkHttpRequestRow(props) {
@@ -754,11 +794,11 @@ window.__ModuleLoader__.load({
 
         var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
           open
-            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
             : [
               react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, codeIcon()),
               react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
-                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
             ],
         )
 
@@ -821,6 +861,219 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * `tool.call.toolview` row for `web_fetch` — the page reader.
+     *
+     * Why it needs its own row: the native/default fetch row is a bare
+     * status line, while everything interesting about a fetch — the page the
+     * model actually read, where it linked to, whether the body was degraded
+     * to a preview — lives in the tool's `meta` and is otherwise invisible in
+     * the transcript. This row shows exactly that: a borderless disclosure row
+     * (URL · status · content-type · link count, with the usual 2px dot
+     * separators) over a WebBlock-styled card carrying the rendered page.
+     *
+     * The body is MARKDOWN by default, so it goes through the host's
+     * `ui.MarkdownText` (never a raw `<pre>` — see `isRenderable`). `format:
+     * 'raw'` is the exception: those bytes are not markdown, so the row keeps
+     * them monospace in a scroll box exactly like `http_request` does. The
+     * host decides which by persisting `format` in the meta.
+     *
+     * A cached page (`cacheId` + a `contentPreview` ending in `…`, or a paged
+     * re-read) opens with the paging hint on screen. The hint's offset is
+     * ABSOLUTE — `cacheSlice.offset + shown` — for the same reason the
+     * model-facing evidence renderer uses it: hinting the slice-local length
+     * would send the next read back to the top of the page.
+     */
+    function WebFetchToolview(react, ui, localeRef) {
+      var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+
+      ensureToolviewStyles()
+
+      return function DshNetworkFetchRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var args = argsOf(block)
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        // The requested URL is what the caller asked for; the meta carries the
+        // FINAL url, which differs after a redirect. Both are shown when they
+        // disagree — a silent redirect is exactly what a reader wants to see.
+        var requestedUrl = typeof args.url === 'string' && args.url !== ''
+          ? args.url
+          : (typeof args.cacheId === 'string' && args.cacheId !== ''
+            ? 'cache:' + args.cacheId.slice(0, 8)
+            : '')
+        var finalUrl = typeof meta.url === 'string' && meta.url !== '' ? meta.url : requestedUrl
+        var statusCode = Number.isInteger(meta.statusCode) ? meta.statusCode : null
+        var contentType = safeContentType(meta.contentType)
+        var body = typeof meta.contentPreview === 'string' ? meta.contentPreview : ''
+        // A single trailing `…` is the host's clip marker (previewText): it is
+        // what tells a truncated preview from a complete page.
+        var clipped = body !== '' && body.charCodeAt(body.length - 1) === 0x2026 /* … */
+        var shownChars = clipped ? body.length - 1 : body.length
+        var cacheId = typeof meta.cacheId === 'string' && meta.cacheId !== '' ? meta.cacheId : ''
+        var contentLength = Number.isInteger(meta.contentLength) ? meta.contentLength : null
+        var cacheSlice = meta.cacheSlice && typeof meta.cacheSlice === 'object' ? meta.cacheSlice : null
+        var sliceOffset = cacheSlice && Number.isInteger(cacheSlice.offset) ? cacheSlice.offset : 0
+        var endOffset = sliceOffset + shownChars
+        var isRaw = meta.format === 'raw'
+        var links = Array.isArray(meta.links)
+          ? meta.links.filter(function (l) { return l && typeof l.url === 'string' && l.url !== '' })
+          : []
+        var linksCount = Number.isInteger(meta.linksCount) ? meta.linksCount : links.length
+        var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
+        var uncertainty = Array.isArray(meta.uncertainty) ? meta.uncertainty : []
+
+        // Canonical `"kind" in block` settled check (see the shared helpers
+        // above): a throwing fetch never lands a meta, only `isError: true`.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
+
+        // A fetch IS the page: unlike a hit list it is what the user asked to
+        // see, so a settled call is open until the user says otherwise — an
+        // errored one included, so the failure needs no extra click. The
+        // `null` state means "still following that default": a plain
+        // `useState(true)` initializer cannot express it, because it only runs
+        // on the FIRST render — while the call is still running — and the row
+        // would stay collapsed after the page arrived.
+        var openState = react.useState(null)
+        var open = settled && (openState[0] === null ? true : openState[0])
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(openState[0] === null ? false : !openState[0]) }
+
+        var headerFragments = []
+        if (requestedUrl !== '') headerFragments.push(requestedUrl)
+        if (finalUrl !== '' && finalUrl !== requestedUrl) headerFragments.push('→ ' + finalUrl)
+        if (errored) {
+          headerFragments.push(t.searchToolFailed)
+        } else if (settled) {
+          if (statusCode !== null) headerFragments.push(String(statusCode))
+          if (contentType !== '') headerFragments.push(contentType)
+          if (linksCount > 0) headerFragments.push(linksCount + ' ' + t.fetchToolLinks)
+        } else {
+          headerFragments.push(t.fetchToolRunning)
+        }
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          errored ? Badge(react, 'error', 'error') : null,
+          settled && !errored && isRaw ? Badge(react, t.fetchToolRaw, 'meta') : null,
+          settled && !errored && statusCode !== null ? Badge(react, String(statusCode), statusTone(statusCode)) : null,
+          settled && !errored && cacheId !== '' ? Badge(react, 'cache:' + cacheId.slice(0, 8), 'warn') : null,
+          warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
+          uncertainty.length ? Badge(react, uncertainty.length + ' uncertain', 'uncertain') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, t.fetchToolTitle)]
+        headerFragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === headerFragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
+            : [
+              react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, flowIcon(react, DOCUMENT_ICON_PATH, false)),
+              react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
+            ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var bodyChildren = []
+        if (errored) {
+          // A throwing call carries no meta — show the structured error text
+          // the model already saw.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-error', role: 'alert', key: 'error' },
+            react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+            errorMessage !== '' ? react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage) : null,
+          ))
+        }
+        if (!errored && cacheId !== '' && contentLength !== null && contentLength > endOffset) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-note', key: 'paged' },
+            fill(t.fetchToolPaged, {
+              shown: shownChars.toLocaleString(),
+              total: contentLength.toLocaleString(),
+              id: cacheId,
+              offset: endOffset,
+            })))
+        } else if (!errored && clipped) {
+          // Clipped with no cache descriptor to page through: say so, rather
+          // than letting the ellipsis read as part of the page.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-note', key: 'clipped' }, t.fetchToolClipped))
+        }
+        if (!errored && body !== '') {
+          bodyChildren.push(isRaw
+            ? react.createElement('pre', { className: 'dshn-body-pre', key: 'body' }, body)
+            : react.createElement('div', { className: 'dshn-page', key: 'body' },
+              MarkdownText
+                ? react.createElement(MarkdownText, { text: body, labels: markdownLabels(localeRef) })
+                : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, body)))
+        } else if (!errored && settled) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, t.fetchToolEmpty))
+        }
+        if (!errored && links.length > 0) {
+          // The host caps the list at 40 while `linksCount` counts every
+          // outgoing link the page had — say which of the two is on screen.
+          var linksTitle = linksCount > links.length ? t.fetchToolLinksTitleCapped : t.fetchToolLinksTitle
+          bodyChildren.push(react.createElement('div', { className: 'dshn-links', key: 'links' },
+            react.createElement('div', { className: 'dshn-links-title' },
+              fill(linksTitle, { count: links.length, total: linksCount })),
+            links.map(function (l, i) {
+              var href = safeHref(l.url)
+              var label = linkLabel(l.url, l.text)
+              var labelProps = { className: 'dshn-link-text' }
+              if (href) {
+                labelProps.href = href
+                labelProps.target = '_blank'
+                labelProps.rel = 'noopener noreferrer'
+              }
+              return react.createElement('div', { className: 'dshn-link-row', key: 'l' + i },
+                react.createElement(href ? 'a' : 'span', labelProps, label),
+                react.createElement('span', { className: 'dshn-link-url' }, l.url))
+            }),
+          ))
+        }
+        if (uncertainty.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'unc', style: { paddingLeft: '18px', margin: '8px 0 0', fontSize: '12px' } },
+            uncertainty.map(function (u, i) { return react.createElement('li', { key: i }, u) })))
+        }
+        if (warnings.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'warns', style: { paddingLeft: '18px', margin: '6px 0 0', fontSize: '12px', color: '#a16207' } },
+            warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })))
+        }
+
+        var bodyNode = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' }, bodyChildren),
+          )
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? bodyNode : null,
+        )
+      }
+    }
+
+    /**
      * `tool.call.toolview` row for `web_sitemap` — the curated portal catalog
      * tool. Same first-party rhythm: borderless disclosure row over a
      * WebBlock-styled body card. The body carries the matching portal list
@@ -842,18 +1095,6 @@ window.__ModuleLoader__.load({
 
       ensureToolviewStyles()
 
-      function flowIcon(pathD, stroke) {
-        return react.createElement('svg', {
-          viewBox: '0 0 24 24',
-          fill: stroke ? 'none' : 'currentColor',
-          stroke: stroke ? 'currentColor' : 'none',
-          strokeWidth: stroke ? 2 : undefined,
-          strokeLinecap: stroke ? 'round' : undefined,
-          strokeLinejoin: stroke ? 'round' : undefined,
-          'aria-hidden': true,
-        }, react.createElement('path', { d: pathD, fill: stroke ? 'none' : 'currentColor' }))
-      }
-
       function sitemapIcon() {
         return react.createElement('svg', {
           viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2,
@@ -865,22 +1106,6 @@ window.__ModuleLoader__.load({
           react.createElement('path', { d: 'M6 7v3h12V7' }),
           react.createElement('path', { d: 'M12 10v7' }),
         )
-      }
-
-      function safeHref(url) {
-        if (typeof url !== 'string' || url === '') return null
-        try {
-          var protocol = new URL(url).protocol
-          return protocol === 'http:' || protocol === 'https:' ? url : null
-        } catch (error) { return null }
-      }
-
-      function linkLabel(url, fallback) {
-        if (typeof fallback === 'string' && fallback !== '') return fallback
-        try {
-          var host = new URL(url).hostname
-          return host === '' ? url : host
-        } catch (error) { return url }
       }
 
       function inputLabel(args) {
@@ -956,11 +1181,11 @@ window.__ModuleLoader__.load({
 
         var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
           open
-            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(CHEVRON_UP_PATH, true))
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
             : [
               react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, sitemapIcon()),
               react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
-                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(CHEVRON_DOWN_PATH, true)),
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
             ],
         )
 
@@ -1084,12 +1309,356 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * `tool.call.toolview` row for `web_config` — the settings tool, the one
+     * call whose SUBJECT is the configuration itself.
+     *
+     * Why it needs its own row: the host used to persist
+     * `{status, action, error, persisted}` — a verb and a boolean — so the
+     * generic card read "web_config set" and nothing else. A user watching the
+     * model retune their network settings (or refuse to, because the
+     * 允许修改设置 safety toggle is off) could not see WHICH field changed, nor
+     * what the live config now holds, without reading the raw trajectory.
+     *
+     * The host now persists the secret-free summary it handed the model
+     * (`meta.config`) plus the field names a LANDED `set` forwarded
+     * (`meta.changes`), so this row renders:
+     *   - the usual borderless disclosure row: action · engine count /
+     *     change count, with 已写入磁盘 / 仅内存 / 已被拒绝 badges;
+     *   - a 变更 group naming every patched field with its RESULTING value
+     *     from `meta.config`, so a clamped write (the model asks for
+     *     searchMaxResults 50, the host stores 20) is visible AS a clamp
+     *     instead of being echoed back as the request;
+     *   - the config itself as labelled groups, reusing the settings page's own
+     *     field labels (`sec…` / `fetchTimeout` / … from DICTS) so the card and
+     *     设置 → 网络 word the same field the same way;
+     *   - the whole summary as pretty-printed JSON behind a details, which is
+     *     what makes the card auditable when a field is missing from the
+     *     labelled groups.
+     *
+     * `meta.config` is OPTIONAL by design: a session recorded before the host
+     * started persisting it (or a meta that fell outside the meta budget)
+     * renders the action, status and badges alone over a 无配置数据 note rather
+     * than throwing inside React. `meta.changes` is absent on a refused write
+     * by construction — the gate answers with the config untouched, and listing
+     * requested-but-unapplied fields would draw edits that never happened.
+     *
+     * No native cell exists for `web_config` (it is this plugin's own tool), so
+     * like `http_request` / `web_sitemap` this row is the only entry in its
+     * cell and renders unconditionally; the sub-zero priority is the same
+     * habit, not a shadow.
+     */
+    function WebConfigToolview(react, ui, localeRef) {
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+
+      ensureToolviewStyles()
+
+      /** The Material `tune` glyph — sliders, i.e. "settings". */
+      function tuneIcon() {
+        return react.createElement('svg', { viewBox: '0 0 24 24', fill: 'currentColor', 'aria-hidden': true },
+          react.createElement('path', { d: TUNE_ICON_PATH, fill: 'currentColor' }))
+      }
+
+      /** One chip; `state` ('on' / 'off' / 'key') drives the colour. */
+      function chip(label, state, key) {
+        var props = { className: 'dshn-chip', key: key }
+        if (state) props['data-state'] = state
+        return react.createElement('span', props, label)
+      }
+
+      /** A wrapped chip row — the engine chain, the allowlist, the switches. */
+      function chipRow(nodes, key) {
+        return react.createElement('span', { className: 'dshn-chips', key: key }, nodes)
+      }
+
+      /** A label/value row. `value` may be text or a node; empty values are
+       *  dropped so an absent config field costs no blank row. */
+      function field(label, value, key) {
+        if (value === null || value === undefined || value === '') return null
+        return react.createElement('div', { className: 'dshn-cfgrow', key: key },
+          react.createElement('span', { className: 'dshn-cfgname' }, label),
+          react.createElement('span', { className: 'dshn-cfgvalue' }, value))
+      }
+
+      /** A titled group of rows, skipped entirely when it has none. */
+      function group(title, rows, key) {
+        var kept = rows.filter(Boolean)
+        if (kept.length === 0) return null
+        return react.createElement('div', { className: 'dshn-cfggroup', key: key },
+          react.createElement('div', { className: 'dshn-cfggroup-title' }, title),
+          kept)
+      }
+
+      /** Absent config booleans mean the default, which is ON for every switch
+       *  the host exposes (`config.x !== false`) — so only `false` reads off,
+       *  and a chip can never claim "off" for a field the summary never
+       *  carried. */
+      function switchState(value) {
+        return value === false ? 'off' : 'on'
+      }
+
+      function isStr(value) {
+        return typeof value === 'string' && value !== ''
+      }
+
+      function jsonText(value) {
+        try {
+          var text = JSON.stringify(value, null, 2)
+          if (typeof text !== 'string') return ''
+          // A hand-written config can carry a huge allowlist / options map; the
+          // raw view is an audit aid, not the primary surface.
+          return text.length > 8000 ? text.slice(0, 8000) + '…' : text
+        } catch (error) { return '' }
+      }
+
+      /** Any config value as one line; never empty (a change row must show its
+       *  field even when the summary has no entry for it). */
+      function valueText(value) {
+        if (value === null || value === undefined) return '—'
+        if (Array.isArray(value)) return value.length === 0 ? '—' : value.map(function (v) { return String(v) }).join(', ')
+        if (typeof value === 'object') {
+          var json = jsonText(value)
+          return json === '' ? '—' : json.replace(/\s+/g, ' ')
+        }
+        return String(value)
+      }
+
+      return function DshNetworkConfigRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var args = argsOf(block)
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        // The action is readable while the call is still RUNNING (argsRaw
+        // streams first), so the header says 读取配置 / 修改配置 immediately and
+        // the meta is only the fallback for a settled block that arrived
+        // without arguments.
+        var action = isStr(args.action) ? args.action.toLowerCase()
+          : (isStr(meta.action) ? String(meta.action).toLowerCase() : '')
+        var isSet = action === 'set'
+        var config = meta.config && typeof meta.config === 'object' && !Array.isArray(meta.config) ? meta.config : null
+        var changes = Array.isArray(meta.changes)
+          ? meta.changes.filter(function (name) { return isStr(name) })
+          : []
+        var engines = config && Array.isArray(config.searchEngines)
+          ? config.searchEngines.filter(function (id) { return isStr(id) })
+          : []
+        var engineConfigs = config && config.searchEngineConfigs && typeof config.searchEngineConfigs === 'object'
+          ? config.searchEngineConfigs
+          : {}
+
+        // Canonical `"kind" in block` settled check (see the shared helpers
+        // above) — meta presence alone misses a THROWN call, which carries
+        // `isError: true` and no `meta` at all.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
+        // A soft error: the tool ANSWERED (it did not throw) and the answer is
+        // a refusal — almost always the safety gate in web_config.execute.
+        var refused = settled && !errored && meta.status === 'error'
+        var refusal = refused && isStr(meta.error) ? meta.error : ''
+
+        // A mutation opens by default — the user should see what changed
+        // without a click — while a plain read keeps the native collapsed
+        // rhythm. A failure and a refusal open too, for the same reason the
+        // other rows do it: the actionable part must not hide behind a click.
+        // The `null` sentinel means "still following that default": a
+        // useState(true) initializer only runs on the FIRST render, which
+        // happens while the call is still running.
+        var openState = react.useState(null)
+        var defaultOpen = settled && (errored || refused || isSet)
+        var open = settled && (openState[0] === null ? defaultOpen : openState[0])
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(!open) }
+
+        var actionLabel = isSet ? t.configToolSet : t.configToolGet
+        var headerFragments = []
+        if (action !== '') headerFragments.push(actionLabel)
+        if (errored) {
+          headerFragments.push(t.searchToolFailed)
+        } else if (settled) {
+          if (refused) headerFragments.push(t.configToolRefused)
+          else if (isSet) headerFragments.push(changes.length + ' ' + t.configToolChanges)
+          else headerFragments.push(engines.length + ' ' + t.configToolEngines)
+        } else {
+          headerFragments.push(t.configToolRunning)
+        }
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          errored ? Badge(react, 'error', 'error') : null,
+          refused ? Badge(react, t.configToolRefused, 'warn') : null,
+          settled && !errored && meta.persisted === true ? Badge(react, t.configToolPersisted, 'ok') : null,
+          settled && !errored && meta.persisted === false ? Badge(react, t.configToolMemoryOnly, 'warn') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, t.configToolTitle)]
+        headerFragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === headerFragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
+            : [
+              react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, tuneIcon()),
+              react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
+            ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var bodyChildren = []
+        if (errored) {
+          // A throwing call carries no meta and no config — show the structured
+          // error text the model already saw.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-error', role: 'alert', key: 'error' },
+            react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+            errorMessage !== '' ? react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage) : null,
+          ))
+        }
+        if (refused) {
+          // The gate, not a crash: name it as a refusal and print the host's own
+          // message, which is how the user learns the toggle they must flip.
+          bodyChildren.push(react.createElement('div', { className: 'dshn-refused', role: 'status', key: 'refused' },
+            react.createElement('div', { className: 'dshn-refused-title' }, actionLabel + ' · ' + t.configToolRefused),
+            refusal !== '' ? react.createElement('pre', { className: 'dshn-refused-detail' }, refusal) : null,
+          ))
+        }
+        if (!errored && changes.length > 0) {
+          bodyChildren.push(group(t.configToolChangeTitle + ' (' + changes.length + ')',
+            changes.map(function (name, i) {
+              // The value comes from the POST-write summary, so the card shows
+              // what the host actually stored — the request is never echoed
+              // back as if it had landed verbatim.
+              return field(name, valueText(config ? config[name] : undefined), 'ch' + i)
+            }), 'changes'))
+        }
+        if (!errored && config) {
+          // Per-engine detail: an endpoint override or a custom options map is
+          // the difference between "brave is in the chain" and "brave is being
+          // called with country=DE", so each engine that declares one gets its
+          // own titled group under the chain row.
+          var engineDetail = []
+          engines.forEach(function (id, i) {
+            var entry = engineConfigs[id] && typeof engineConfigs[id] === 'object' ? engineConfigs[id] : null
+            if (!entry) return
+            var nodes = []
+            if (isStr(entry.endpoint)) {
+              nodes.push(field('endpoint', react.createElement('span', { 'data-mono': 'true' }, entry.endpoint), 'ep' + i))
+            }
+            var options = entry.options && typeof entry.options === 'object' ? Object.keys(entry.options) : []
+            if (options.length > 0) {
+              nodes.push(field('options', react.createElement('span', { 'data-mono': 'true' },
+                options.map(function (key) { return key + '=' + String(entry.options[key]) }).join('  ')), 'op' + i))
+            }
+            if (nodes.length > 0) engineDetail.push(group(id, nodes, 'eng' + i))
+          })
+
+          var groups = [
+            // ── the search engine chain, in fallback order ──
+            group(t.sectionEngines, [
+              field(t.configToolChain, engines.length === 0
+                ? react.createElement('span', { className: 'dshn-empty' }, t.configToolNoEngines)
+                : chipRow(engines.map(function (id, i) {
+                  var entry = engineConfigs[id] && typeof engineConfigs[id] === 'object' ? engineConfigs[id] : null
+                  var nodes = [chip(id, null, 'e' + i)]
+                  // `hasApiKey` is the host's derived view of the key map, so a
+                  // key chip means the CLI really will send the auth header.
+                  if (entry && entry.hasApiKey === true) nodes.push(chip(t.configToolKey, 'key', 'k' + i))
+                  return nodes
+                }).reduce(function (all, nodes) { return all.concat(nodes) }, []), 'chain'), 'chain'),
+            ].concat(engineDetail), 'engines'),
+            // ── request identity and the per-tool timeouts ──
+            group(t.sectionRequest, [
+              field(t.userAgent, react.createElement('span', { 'data-mono': 'true' }, valueText(config.userAgent)), 'ua'),
+              field(t.fetchTimeout, valueText(config.fetchTimeoutMs), 'ft'),
+              field(t.searchTimeout, valueText(config.searchTimeoutMs), 'st'),
+              field(t.httpTimeout, valueText(config.httpTimeoutMs), 'ht'),
+            ], 'request'),
+            // ── the three protections + the host allowlist ──
+            group(t.sectionSafety, [
+              field(t.configToolProtections, chipRow([
+                chip(t.ssrfProtection, switchState(config.ssrfProtection), 'p1'),
+                chip(t.redirectProtection, switchState(config.redirectProtection), 'p2'),
+                chip(t.protocolLock, switchState(config.protocolLock), 'p3'),
+              ], 'prot'), 'prot'),
+              field(t.allowlist, Array.isArray(config.allowlist) && config.allowlist.length > 0
+                ? chipRow(config.allowlist.map(function (host, i) { return chip(String(host), null, 'a' + i) }), 'allow')
+                : react.createElement('span', { className: 'dshn-empty' }, t.configToolUnrestricted), 'allow'),
+            ], 'safety'),
+            // ── caps and the http_request verb set ──
+            group(t.sectionLimits, [
+              field(t.maxResults, valueText(config.searchMaxResults), 'mr'),
+              field(t.maxRedirects, valueText(config.maxRedirects), 'mrd'),
+              field(t.maxBodyChars, valueText(config.maxBodyChars), 'mbc'),
+              field(t.methods, valueText(config.httpMethods), 'hm'),
+            ], 'limits'),
+            // ── the per-tool kill switches. `enabled` (the row-config kill
+            //    switch) is deliberately absent: apply() registers no tool at
+            //    all while it is off, so no call can ever report it. ──
+            group(t.sectionTools, [
+              field(t.configToolSwitches, chipRow([
+                chip(t.toolWebSearch, switchState(config.webSearchTool), 't1'),
+                chip(t.toolWebFetch, switchState(config.webFetchTool), 't2'),
+                chip(t.toolHttpRequest, switchState(config.httpRequestTool), 't3'),
+                chip(t.toolWebSitemap, switchState(config.webSitemapTool), 't4'),
+              ], 'tools'), 'tools'),
+            ], 'tools-group'),
+            // ── GitHub engine. `hasGithubToken` is all the host ever exposes;
+            //    the token itself never leaves the host process. ──
+            group(t.githubGroupTitle, [
+              field(t.githubIndexes, Array.isArray(config.githubIndexes) && config.githubIndexes.length > 0
+                ? valueText(config.githubIndexes) : t.configToolAuto, 'gi'),
+              field(t.githubSort, valueText(config.githubSort), 'gs'),
+              field(t.githubToken, config.hasGithubToken === true ? t.githubTokenConfigured : t.githubTokenEmpty, 'gt'),
+            ], 'github'),
+            react.createElement('details', { className: 'dshn-details', key: 'raw' },
+              react.createElement('summary', null, t.configToolRaw),
+              react.createElement('pre', null, jsonText(config))),
+          ]
+          bodyChildren.push(react.createElement('div', { className: 'dshn-cfg', key: 'cfg' }, groups))
+        } else if (!errored && settled && !refused) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-empty', key: 'empty' }, t.configToolEmpty))
+        }
+
+        var bodyNode = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' }, bodyChildren),
+          )
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? bodyNode : null,
+        )
+      }
+    }
+
     return {
       Renderer,
       FetchBlockRenderer,
       SearchToolview,
       HttpRequestToolview,
+      WebFetchToolview,
       WebSitemapToolview,
+      WebConfigToolview,
     }
 
   },

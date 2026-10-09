@@ -138,6 +138,13 @@ The dialogs, the full per-engine option tables (`country`, `freshness`,
   it.
 - Secrets (`githubToken`, `searchEngineApiKeys`) are stripped from both the
   read and write paths of the tool.
+- Each call renders as a card in the transcript (see
+  [architecture](architecture.md#tool-card-overrides)). A read collapses to
+  `网络配置 · 读取配置 · N 个引擎`; a write opens and lists every field it
+  changed **with the value the host actually stored**, so a clamped value reads
+  as a clamp; a write the toggle refused shows as an amber *已被拒绝* block.
+  The card's config snapshot is the same model-facing summary, so the toggle and
+  the secrets are absent there too.
 
 ## Loopback routes
 

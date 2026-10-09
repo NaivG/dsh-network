@@ -9,7 +9,7 @@ Let DeepSeek Harness access the internet seamlessly.
 **English** | [简体中文](README.ZH.md)
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc1-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
+[![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc2-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
 [![Listed on DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-en.svg)](https://dsh.market/)
 [![Listed on dsh-plugin.org](https://dsh-plugin.org/badges/listed.svg)](https://dsh-plugin.org/plugins/naivg/dsh-network)
@@ -97,7 +97,21 @@ row over the result body:
 
 `http_request` tool
 
+<img src="assets/config-tool.png" width="600" alt="web_config card"/>
+
+`web_config` tool
+
 </div>
+
+`web_config` gets the same treatment. A read collapses to
+`Network config · Read config · N engines`; a write opens on its own and lists
+every field it changed **with the value that was actually stored**, so a
+request the host clamped (ask for `searchMaxResults: 50`, get `20`) reads as a
+clamp rather than as the request; and a write the safety toggle refused shows
+as an amber *refused* block — never as a silent no-op, and never as a change
+list of edits that did not happen. The live config itself sits underneath as
+labelled groups (engine chain with key chips, timeouts, protections, allowlist,
+caps, tool switches, GitHub) over the raw JSON.
 
 `web_fetch` / `http_request` bodies above the inline cap (about 20 KB) come
 back as a preview plus a `cacheId`, and the model pages through the rest with

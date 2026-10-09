@@ -316,6 +316,70 @@ try {
   assert.equal(toolUnknown.config.searchTimeoutMs, 17000, 'valid fields still go through')
   assert.equal('notAField' in toolUnknown.config, false, 'unknown fields must be dropped, not echoed back')
 
+  // ──────────── 9b. integration: the web_config card meta ────────────
+  // The browser row NEVER sees the tool's value — dsh hands it `block.meta`
+  // only — so `presentationMeta` is the only channel a config card can read.
+  // It is exercised here through the REAL registration, i.e. the exact
+  // function the harness calls, and the result must survive the harness's
+  // strict `JSON.parse(JSON.stringify(meta))` deep round-trip.
+  const metaOf = (args, value) => webConfigTool.output.presentationMeta(args, value)
+
+  /** Every key path at EVERY depth — a nested `undefined` is dropped by
+   *  `JSON.stringify`, and the harness's lossless check is a deep one. */
+  function keyPaths(value, prefix = '') {
+    if (Array.isArray(value)) return value.flatMap((item, i) => keyPaths(item, `${prefix}[${i}]`))
+    if (value && typeof value === 'object') {
+      return Object.keys(value).flatMap((key) => keyPaths(value[key], prefix ? `${prefix}.${key}` : key))
+    }
+    return [prefix]
+  }
+  function assertLosslessMeta(meta) {
+    const back = JSON.parse(JSON.stringify(meta))
+    assert.deepEqual(keyPaths(back).sort(), keyPaths(meta).sort(), 'meta must keep every key at every depth')
+    assert.equal(JSON.stringify(back), JSON.stringify(meta), 'meta values must survive the round-trip unchanged')
+  }
+
+  const getMeta = metaOf({ action: 'get' }, toolGet)
+  assert.equal(getMeta.status, 'ok')
+  assert.equal(getMeta.action, 'get')
+  assert.equal(getMeta.changes, undefined, 'a get landed no patch, so it must carry no changes')
+  assert.equal(getMeta.persisted, undefined)
+  assert.ok(getMeta.config && typeof getMeta.config === 'object', 'the get card must carry the config snapshot')
+  assert.equal(getMeta.config.searchEngines.join(','), 'bing,duckduckgo,baidu', 'the card shows the live chain')
+  // The snapshot comes from summarizeForModel(), so the gate and the secrets
+  // are absent from it exactly as they are from the model-facing value.
+  assert.equal('allowConfigEdit' in getMeta.config, false, 'the gate must not ride the card snapshot')
+  assert.equal('githubToken' in getMeta.config, false, 'the token must not ride the card snapshot')
+  assert.equal('searchEngineApiKeys' in getMeta.config, false, 'API keys must not ride the card snapshot')
+  assertLosslessMeta(getMeta)
+
+  // A landed patch: the card lists exactly the fields the schema forwarded.
+  // `allowConfigEdit: false` is silently filtered (the model must not flip its
+  // own gate), so it must NOT show up as a change — a card that echoed the
+  // REQUEST would draw an edit that never happened. The engine entry is the
+  // nested-undefined trap: applyCardSettings stores it without an endpoint,
+  // `summarize()` then emits `endpoint: undefined`, and `JSON.stringify`
+  // drops exactly that key — the raw summary is NOT lossless.
+  const setArgs = { action: 'set', patch: { searchEngineConfigs: { bing: { options: { mkt: 'zh-CN' } } }, allowConfigEdit: false } }
+  const setValue = await webConfigTool.execute(setArgs, { signal: undefined })
+  const setMeta = metaOf(setArgs, setValue)
+  assert.equal(setMeta.status, 'ok')
+  assert.equal(setMeta.persisted, true)
+  assert.deepEqual(setMeta.changes, ['searchEngineConfigs'], 'only the fields the patch schema lists are changes')
+  assert.equal(setMeta.config.searchEngineConfigs.bing.options.mkt, 'zh-CN', 'the card shows the STORED options')
+  assert.equal('endpoint' in setMeta.config.searchEngineConfigs.bing, false, 'jsonSafeMeta drops the nested undefined')
+  assertLosslessMeta(setMeta)
+
+  // A refused set never reaches applyCardSettings, so its card must carry the
+  // refusal and NO change list — otherwise the row would show edits the gate
+  // rejected.
+  const refusedArgs = { action: 'set', patch: { fetchTimeoutMs: 99999 } }
+  const refusedMeta = metaOf(refusedArgs, toolSetRefused)
+  assert.equal(refusedMeta.status, 'error')
+  assert.equal(refusedMeta.changes, undefined, 'a refused set must not look like it changed anything')
+  assert.ok(/allow/i.test(refusedMeta.error || ''), 'the refusal message rides the meta so the card can print it')
+  assertLosslessMeta(refusedMeta)
+
   // ──────────────────── 10. integration: sidebar search route ────────────────────
   // The sidebar "网络搜索" panel drives /dsh-network/search. The route must
   // register, fence untrusted callers like the config route does, validate

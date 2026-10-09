@@ -155,6 +155,36 @@ window.__ModuleLoader__.load({
         searchToolTruncated: '结果已按上限截断',
         searchToolNoResults: '未找到结果',
         searchToolFailed: '请求失败',
+        // ── web_fetch toolview row ──
+        fetchToolTitle: '页面抓取',
+        fetchToolRunning: '抓取中…',
+        fetchToolLinks: '个链接',
+        fetchToolLinksTitle: '出站链接（{count}）',
+        fetchToolLinksTitleCapped: '出站链接（{count} / {total}）',
+        fetchToolEmpty: '响应体为空',
+        fetchToolRaw: '原文',
+        fetchToolClipped: '正文已截断显示',
+        fetchToolPaged: '预览 — 共 {total} 字符（显示了 {shown}）。以 cacheId="{id}" 配合 offset={offset}, limit=20000 继续分页。',
+        // ── web_config toolview row ──
+        configToolTitle: '网络配置',
+        configToolGet: '读取配置',
+        configToolSet: '修改配置',
+        configToolRunning: '读取配置中…',
+        configToolEngines: '个引擎',
+        configToolChanges: '项修改',
+        configToolChangeTitle: '变更',
+        configToolRefused: '已被拒绝',
+        configToolPersisted: '已写入磁盘',
+        configToolMemoryOnly: '仅内存',
+        configToolRaw: '原始 JSON',
+        configToolUnrestricted: '不限制',
+        configToolAuto: '自动',
+        configToolEmpty: '无配置数据',
+        configToolNoEngines: '未配置引擎',
+        configToolChain: '引擎链',
+        configToolProtections: '保护项',
+        configToolSwitches: '开关',
+        configToolKey: '密钥',
         // ── sidebar search panel ──
         searchPanel: '网络搜索',
         searchPanelSubtitle: '在侧边栏直接搜索公共网络，走与 web_search 相同的引擎链。',
@@ -283,6 +313,36 @@ window.__ModuleLoader__.load({
         searchToolTruncated: 'Results were capped',
         searchToolNoResults: 'No results found',
         searchToolFailed: 'Request failed',
+        // ── web_fetch toolview row ──
+        fetchToolTitle: 'Web fetch',
+        fetchToolRunning: 'Fetching…',
+        fetchToolLinks: 'links',
+        fetchToolLinksTitle: 'Outgoing links ({count})',
+        fetchToolLinksTitleCapped: 'Outgoing links ({count} of {total})',
+        fetchToolEmpty: 'Empty body',
+        fetchToolRaw: 'raw',
+        fetchToolClipped: 'Body shown truncated',
+        fetchToolPaged: 'Preview — {shown} of {total} chars shown. Page the rest with cacheId="{id}", offset={offset}, limit=20000.',
+        // ── web_config toolview row ──
+        configToolTitle: 'Network config',
+        configToolGet: 'Read config',
+        configToolSet: 'Update config',
+        configToolRunning: 'Reading config…',
+        configToolEngines: 'engines',
+        configToolChanges: 'changes',
+        configToolChangeTitle: 'Changes',
+        configToolRefused: 'refused',
+        configToolPersisted: 'saved to disk',
+        configToolMemoryOnly: 'memory only',
+        configToolRaw: 'Raw JSON',
+        configToolUnrestricted: 'Unrestricted',
+        configToolAuto: 'auto',
+        configToolEmpty: 'No config snapshot',
+        configToolNoEngines: 'No engines configured',
+        configToolChain: 'Chain',
+        configToolProtections: 'Protections',
+        configToolSwitches: 'Switches',
+        configToolKey: 'key',
         // ── sidebar search panel ──
         searchPanel: 'Web Search',
         searchPanelSubtitle: 'Search the public web right from the sidebar, on the same engine chain as web_search.',
@@ -754,7 +814,9 @@ window.__ModuleLoader__.load({
     // row to keep the value the comment refers to.
     var WEB_SEARCH_ROW_PRIORITY = -900
     var HTTP_REQUEST_ROW_PRIORITY = -900
+    var WEB_FETCH_ROW_PRIORITY = -900
     var WEB_SITEMAP_ROW_PRIORITY = -900
+    var WEB_CONFIG_ROW_PRIORITY = -900
 
     // ────────────────────── slot registration ──────────────────────
     function tryRequire(spec) {
@@ -832,7 +894,9 @@ window.__ModuleLoader__.load({
     var __card = {
       WEB_SEARCH_ROW_PRIORITY: WEB_SEARCH_ROW_PRIORITY,
       HTTP_REQUEST_ROW_PRIORITY: HTTP_REQUEST_ROW_PRIORITY,
+      WEB_FETCH_ROW_PRIORITY: WEB_FETCH_ROW_PRIORITY,
       WEB_SITEMAP_ROW_PRIORITY: WEB_SITEMAP_ROW_PRIORITY,
+      WEB_CONFIG_ROW_PRIORITY: WEB_CONFIG_ROW_PRIORITY,
     }
     function apply(ctx) {
       if (typeof ctx.inject !== 'function') return
@@ -935,7 +999,9 @@ window.__ModuleLoader__.load({
               __card.FetchBlockRenderer = views.FetchBlockRenderer
               __card.SearchToolview = views.SearchToolview
               __card.HttpRequestToolview = views.HttpRequestToolview
+              __card.WebFetchToolview = views.WebFetchToolview
               __card.WebSitemapToolview = views.WebSitemapToolview
+              __card.WebConfigToolview = views.WebConfigToolview
               try {
                 // ── sidebar "网络搜索" panel ──
                 // sidebar.panellist (rail icon row) + layout `main` (the page
@@ -1013,13 +1079,15 @@ window.__ModuleLoader__.load({
                 // THROWS. dsh claims `web_search` at the default priority 0,
                 // so we claim a lower number to shadow it — and a failure
                 // here must never take the rest of the plugin half down with
-                // it. `web_fetch` deliberately stays untouched: it already
-                // has a perfectly serviceable native row, and the older-dsh
-                // block renderer (FetchBlockRenderer above) carries any
-                // chrome we used to add.
+                // it. The plugin REPLACES dsh's tool-web, so `web_fetch`
+                // (like `http_request` / `web_sitemap` / `web_config`) has no
+                // native row to shadow at all: our key is the only entry in
+                // its cell and renders unconditionally.
                 var SearchRow = views.SearchToolview(react, ui, localeRef)
                 var HttpRow = views.HttpRequestToolview(react, ui, localeRef)
+                var FetchRow = views.WebFetchToolview(react, ui, localeRef)
                 var SitemapRow = views.WebSitemapToolview(react, ui, localeRef)
+                var ConfigRow = views.WebConfigToolview(react, ui, localeRef)
                 scope.slots.inject('tool.call.toolview', function* () {
                   try {
                     yield scope.slots.register(
@@ -1039,11 +1107,27 @@ window.__ModuleLoader__.load({
                   }
                   try {
                     yield scope.slots.register(
+                      { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_fetch', priority: WEB_FETCH_ROW_PRIORITY, locale: 'dsh-network' },
+                      FetchRow,
+                    )
+                  } catch (error) {
+                    console.error('[dsh-network] web_fetch toolview not registered:', error)
+                  }
+                  try {
+                    yield scope.slots.register(
                       { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_sitemap', priority: WEB_SITEMAP_ROW_PRIORITY, locale: 'dsh-network' },
                       SitemapRow,
                     )
                   } catch (error) {
                     console.error('[dsh-network] web_sitemap toolview not registered:', error)
+                  }
+                  try {
+                    yield scope.slots.register(
+                      { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_config', priority: WEB_CONFIG_ROW_PRIORITY, locale: 'dsh-network' },
+                      ConfigRow,
+                    )
+                  } catch (error) {
+                    console.error('[dsh-network] web_config toolview not registered:', error)
                   }
                 })
               } catch (error) {

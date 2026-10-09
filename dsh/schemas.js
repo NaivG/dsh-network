@@ -293,9 +293,27 @@ const WEB_CONFIG_PATCH_SCHEMA = {
   },
 }
 
+/**
+ * The subset of a `web_config.set` patch argument the tool actually forwards,
+ * in schema order. ONE function, two readers: `execute()` writes it into the
+ * live config, and `presentationMeta` names the fields a landed change touched
+ * (the card's 变更 list). Keeping it here means the model cannot reach
+ * `applyCardSettings()` with a field the schema does not list — a stray
+ * `githubToken` or per-engine `apiKey` is dropped before the write path.
+ */
+function pickConfigPatch(patch) {
+  const out = {}
+  if (patch === null || typeof patch !== 'object' || Array.isArray(patch)) return out
+  for (const key of Object.keys(WEB_CONFIG_PATCH_SCHEMA.properties)) {
+    if (Object.prototype.hasOwnProperty.call(patch, key)) out[key] = patch[key]
+  }
+  return out
+}
+
 export {
   GITHUB_INDEX_IDS,
   GITHUB_SORTS,
+  pickConfigPatch,
   SEARCH_OUTPUT_SCHEMA,
   FETCH_OUTPUT_SCHEMA,
   WEB_SITEMAP_CATEGORIES,

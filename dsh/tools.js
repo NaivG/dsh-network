@@ -15,11 +15,14 @@ import {
   HTTP_OUTPUT_SCHEMA,
   WEB_CONFIG_OUTPUT_SCHEMA,
   WEB_CONFIG_PATCH_SCHEMA,
+  pickConfigPatch,
   WEB_SITEMAP_CATEGORIES,
   SITEMAP_OUTPUT_SCHEMA,
 } from './schemas.js'
 import {
   compactPresentation,
+  jsonSafeMeta,
+  previewText,
   toHostCacheSlice,
   toSearchSources,
   renderSearchEvidence,
@@ -27,7 +30,6 @@ import {
   renderHttpEvidence,
   renderConfigEvidence,
   renderSitemapEvidence,
-  RENDER_CONTENT_CAP,
 } from './evidence.js'
 import { summarizeForModel, applyCardSettings } from './config-summary.js'
 
@@ -175,15 +177,32 @@ function registerWebFetchTool(ctx, config) {
     output: {
       schema: FETCH_OUTPUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderFetchEvidence(value) }],
-      presentationMeta: (_args, value) => compactPresentation({
+      presentationMeta: (args, value) => compactPresentation({
         url: value.finalUrl,
         statusCode: value.statusCode,
         truncated: Array.isArray(value.warnings) && value.warnings.some((w) => /truncated/i.test(w)),
         contentType: value.contentType,
         engine: value.engine,
+        // The card-side toolview (dsh/client.toolviews.js WebFetchToolview)
+        // shows the page itself, so the markdown body has to ride along in
+        // the persisted meta — same cap, same trailing `…` marker as
+        // http_request's bodyPreview (both go through `previewText`), so the
+        // row can tell a clipped preview from a complete one.
+        contentPreview: previewText(value.content),
+        // `format` is an ARGUMENT, not part of the output envelope: a `raw`
+        // body is bytes, not markdown, and the row must not push it through
+        // MarkdownText. Read it off the call args instead of widening
+        // FETCH_OUTPUT_SCHEMA for a card-only concern.
+        format:
+          args && typeof args.format === 'string' && args.format.toLowerCase() === 'raw'
+            ? 'raw'
+            : 'markdown',
         warnings: value.warnings,
         uncertainty: value.uncertainty,
         linksCount: Array.isArray(value.links) ? value.links.length : 0,
+        // The outgoing links themselves, capped like the http headers list —
+        // the row renders them as an audit trail of where the page pointed.
+        links: Array.isArray(value.links) ? value.links.slice(0, 40) : [],
         // Surface the cache descriptor so the block renderer can hint at
         // paging controls (e.g. "(preview, 4123 more chars)").
         cacheId: value.cacheId,
@@ -351,11 +370,7 @@ function registerHttpRequestTool(ctx, config) {
         // never balloons the persisted `meta`. Lossless JSON still holds
         // because every key is `string` or `number` and `compactPresentation`
         // drops the absent fields entirely.
-        bodyPreview: typeof value.body === 'string'
-          ? (value.body.length > RENDER_CONTENT_CAP
-                  ? value.body.slice(0, RENDER_CONTENT_CAP) + '…'
-                  : value.body)
-          : '',
+        bodyPreview: previewText(value.body),
         headers: Array.isArray(value.headers)
           ? value.headers.slice(0, 40)
           : [],
@@ -515,11 +530,30 @@ function registerWebConfigTool(ctx, config) {
     output: {
       schema: WEB_CONFIG_OUTPUT_SCHEMA,
       render: (_args, value) => [{ type: 'text', text: renderConfigEvidence(value) }],
-      presentationMeta: (_args, value) => compactPresentation({
+      // The card row needs more than the verb. It renders the live config the
+      // call just read or wrote — secret-free by construction, because
+      // `summarizeForModel()` drops `allowConfigEdit` (the model must not read
+      // its own write gate), `githubToken` and every engine API key down to a
+      // boolean — plus the field NAMES a `set` actually forwarded.
+      //
+      // `jsonSafeMeta` is what keeps that nested object lossless; see its doc
+      // comment. `summarize()` emits `endpoint: undefined` for an engine with
+      // no endpoint override, and `JSON.stringify` drops a nested undefined,
+      // so persisting the summary raw would trip the harness's deep
+      // round-trip check on the first call after such a config exists.
+      presentationMeta: (args, value) => compactPresentation({
         status: value.status,
         action: value.action,
         error: value.error,
         persisted: value.persisted,
+        config: jsonSafeMeta(value.config),
+        // Only a patch that LANDED is a change. The safety gate and
+        // applyCardSettings' own rejections both answer `status: 'error'` with
+        // the live config untouched, so echoing the requested field names there
+        // would draw edits that never happened.
+        changes: value.action === 'set' && value.status === 'ok'
+          ? Object.keys(pickConfigPatch(args.patch))
+          : undefined,
       }),
     },
     timeoutMs: 15_000,
@@ -578,13 +612,10 @@ function registerWebConfigTool(ctx, config) {
       // a model trying to write `githubToken` / `searchEngineApiKeys`
       // (the secret fields) gets silently filtered before reaching the
       // host config. `summarizeForModel()` already omits secrets from the
-      // response, but this also keeps them out of the write path.
-      const filtered = {}
-      for (const key of Object.keys(WEB_CONFIG_PATCH_SCHEMA.properties)) {
-        if (Object.prototype.hasOwnProperty.call(patch, key)) {
-          filtered[key] = patch[key]
-        }
-      }
+      // response, but this also keeps them out of the write path. The card's
+      // 变更 list names the same fields, so the filter has ONE home
+      // (`pickConfigPatch`) rather than a copy per reader.
+      const filtered = pickConfigPatch(patch)
       const ok = applyCardSettings(config, filtered)
       if (ok && ok.ok === false) {
         return {

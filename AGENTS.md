@@ -242,15 +242,20 @@ never lazy-continue the last list item.
 - `tool.call.toolview` is a KEYED slot: one cell per tool name, only the
   **lowest-priority** live entry renders, and re-registering a key at an
   already-taken priority **throws**. dsh claims `web_search` at priority 0,
-  so the plugin claims `-900`; the registration is try/caught so an upstream
-  change can't take down the browser half. Styling is composed to read like
-  a first-party dsh card under `dshn-` class names, because the upstream
-  hashed classes are internal to the dsh bundle.
+  so the plugin claims `-900` for every row; the registration is try/caught so
+  an upstream change can't take down the browser half. `http_request`,
+  `web_fetch`, `web_sitemap` and `web_config` have NO native cell at all (this
+  package replaces dsh's `tool-web`), so their rows render unconditionally.
+  Styling is composed to read like a first-party dsh card under `dshn-` class
+  names, because the upstream hashed classes are internal to the dsh bundle.
 - Read arguments via `argsOf`: a settled dsh block carries them ONLY as the
   raw JSON string `block.call.argsRaw` (there is no pre-parsed `call.args`),
-  with a literal `call.args` fallback for hosts/tests.
-- A settled block is detected by meta PRESENCE (a finished zero-hit call
-  persists a meta object), never by hit count.
+  with a literal `call.args` fallback for hosts/tests. The `web_config` row
+  needs them early: it labels the row 读取配置 / 修改配置 while the call is still
+  STREAMING (the meta only arrives once it settles).
+- A settled block is detected by `kind === 'tool-result'` / `isError === true`
+  (dsh's canonical check), with meta presence as a fallback — never by hit
+  count, and never by meta alone: a THROWN call lands no meta at all.
 - Every answer/body string goes through the host's `ui.MarkdownText`,
   detected with `isRenderable(value)` — NEVER `typeof value === 'function'`.
   dsh exports it through `React.memo`, so the shipped value is a memo object
@@ -258,7 +263,32 @@ never lazy-continue the last list item.
   fallback. `isRenderable` accepts functions, memo / forwardRef / lazy tags
   and `render`-carrying objects; it rejects null, plain objects and the
   strings of the degraded `{ Input: 'input' }` host surface. `MarkdownText`
-  also needs its `labels` seats, which the entry supplies per locale.
+  also needs its `labels` seats, which the entry supplies per locale. A body
+  whose persisted `format` is `raw` is NOT markdown and stays monospace.
+- A row can only show what the host persisted: `presentationMeta` carries the
+  `web_fetch` page as `contentPreview` plus `format`, `links` and the cache
+  descriptor, and `http_request`'s body as `bodyPreview` plus `headers`. Both
+  previews go through `previewText` (one clip, one trailing `…` marker — the
+  row reads that marker to tell a truncated preview from a complete body).
+  Any paging hint quotes the ABSOLUTE next offset
+  (`cacheSlice.offset + shown`), never the slice-local length.
+- `web_config`'s row is the wide one: the meta carries the WHOLE config
+  (`config`, straight from `summarizeForModel()` — so `allowConfigEdit` and
+  every secret are absent by construction, and must stay absent) plus
+  `changes`, the field names a LANDED `set` forwarded. Two rules:
+  **only `status: 'ok' && action: 'set'` gets `changes`** (the gate and
+  `applyCardSettings` rejections touch nothing, and listing them would draw
+  edits that never happened), and the value shown per change comes from the
+  POST-write `config`, so a clamp reads as a clamp. Patching is filtered by
+  `pickConfigPatch()` (schemas.js), the ONE whitelist `execute()` also writes
+  through.
+- **A nested `undefined` in a meta is a REJECTED tool call.** The harness
+  checks `JSON.parse(JSON.stringify(meta))` deep-equal to the original, and
+  `compactPresentation()` only scrubs the TOP level — while `summarize()`
+  emits `endpoint: undefined` for an engine with no endpoint override. The
+  `web_config` snapshot therefore goes through `jsonSafeMeta()`
+  (evidence.js). Add a deep sanity check, not a top-level one, when a meta
+  grows a nested object.
 
 ### Sidebar search panel
 

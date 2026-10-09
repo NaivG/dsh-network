@@ -271,6 +271,10 @@ describe('browser-half chunks render through the loader contract', () => {
       'RenderNetworkPage',
     ])
     expect(typeof chunks['client.toolviews.js'].SearchToolview).toBe('function')
+    expect(typeof chunks['client.toolviews.js'].HttpRequestToolview).toBe('function')
+    expect(typeof chunks['client.toolviews.js'].WebFetchToolview).toBe('function')
+    expect(typeof chunks['client.toolviews.js'].WebSitemapToolview).toBe('function')
+    expect(typeof chunks['client.toolviews.js'].WebConfigToolview).toBe('function')
     expect(typeof chunks['client.searchpanel.js'].SearchPanelPage).toBe('function')
   })
 
@@ -503,5 +507,76 @@ describe('browser-half chunks render through the loader contract', () => {
       },
     })
     expect(html).toContain('dsh-network plugin github')
+  })
+
+  it('renders the web_config row from the meta the host persists', async () => {
+    const { chunks, entry } = await createChunkLoader().load()
+    const views = chunks['client.toolviews.js']
+    const t = labelsFrom(entry)
+    const Row = (views.WebConfigToolview as (...args: unknown[]) => unknown)(react, ui, localeRef)
+
+    const html = renderComponent(Row, {
+      block: {
+        kind: 'tool-result',
+        call: { name: 'web_config', argsRaw: JSON.stringify({ action: 'set' }) },
+        meta: {
+          status: 'ok',
+          action: 'set',
+          persisted: true,
+          changes: ['searchMaxResults'],
+          config: {
+            searchEngines: ['bing', 'brave'],
+            searchEngineConfigs: { brave: { hasApiKey: true, options: {} } },
+            searchMaxResults: 20,
+            allowlist: [],
+            ssrfProtection: true,
+            webSearchTool: true,
+            githubIndexes: [],
+            githubSort: 'best',
+            hasGithubToken: false,
+          },
+        },
+      },
+    })
+    // The labels come from the entry's DICTS (a key missing there renders as
+    // nothing at all, which is how a half-wired row would look).
+    expect(html).toContain(t.configToolTitle)
+    expect(html).toContain(t.configToolSet)
+    expect(html).toContain(t.configToolPersisted)
+    // The change list shows the STORED value, and the chain carries the keyed
+    // engine chip — the two reasons this row exists at all.
+    expect(html).toContain(t.configToolChangeTitle)
+    expect(html).toContain('dshn-cfgname">searchMaxResults</span><span class="dshn-cfgvalue">20')
+    expect(html).toContain('brave')
+    expect(html).toContain(t.configToolKey)
+  })
+
+  it('renders the web_fetch row with the page and its outgoing links', async () => {
+    const { chunks, entry } = await createChunkLoader().load()
+    const views = chunks['client.toolviews.js']
+    const t = labelsFrom(entry)
+    const Row = (views.WebFetchToolview as (...args: unknown[]) => unknown)(react, ui, localeRef)
+
+    const html = renderComponent(Row, {
+      block: {
+        kind: 'tool-result',
+        call: { name: 'web_fetch', argsRaw: JSON.stringify({ url: 'https://example.com/docs' }) },
+        meta: {
+          url: 'https://example.com/docs',
+          statusCode: 200,
+          contentType: 'text/html; charset=utf-8',
+          format: 'markdown',
+          contentPreview: '# Release notes\n\nbody',
+          linksCount: 1,
+          links: [{ text: 'Guide', url: 'https://example.com/guide' }],
+        },
+      },
+    })
+    expect(html).toContain(t.fetchToolTitle)
+    expect(html).toContain('https://example.com/docs')
+    // The page itself must survive as rendered markdown, and the outgoing
+    // link list must be present — that is the whole point of the row.
+    expect(html).toContain('# Release notes')
+    expect(html).toContain('href="https://example.com/guide"')
   })
 })

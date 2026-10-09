@@ -210,7 +210,9 @@ via the loader's OFFICIAL `require.async` protocol (what a bundler's dynamic
 - `client.settings.js` — the "网络" settings section + the legacy
   `settings.plugin.item` card
 - `client.toolviews.js` — the block renderers on `tool.web.item` /
-  `tool.web.fetch.item` for older dsh plus the `tool.call.toolview` rows
+  `tool.web.fetch.item` for older dsh plus the five
+  `tool.call.toolview` rows (`web_search`, `http_request`, `web_fetch`,
+  `web_sitemap`, `web_config`)
 - `client.searchpanel.js` — the sidebar search panel
 
 Chunk rules (from `@deepseek-ai/dsh-client-modules`): a chunk must be
@@ -238,15 +240,18 @@ ENTRY file's mtime/ctime/size: after editing a chunk, touch `dsh/client.js`
 (or reinstall) to bump the rev, otherwise browsers keep the immutable-cached
 old copy.
 
-### Search card override
+### Tool card overrides
 
 `tool.call.toolview` is a KEYED slot: one cell per tool name, only the
 **lowest-priority** live entry of a cell renders, and re-registering a key at
 an already-taken priority **throws**. dsh claims `web_search` at the default
 priority 0, so the plugin claims `-900` to shadow the native row; the
 registration is try/caught so an upstream change can never take the whole
-browser half down. The row renders the per-query answer and deliberately does
-NOT re-render the pooled source list; it falls back to a plain source list
+browser half down. The same priority is claimed for `http_request`,
+`web_fetch`, `web_sitemap` and `web_config` — this package REPLACES dsh's
+`tool-web`, so those four cells have no native entry at all and ours renders
+unconditionally. The search row renders the per-query answer and deliberately
+does NOT re-render the pooled source list; it falls back to a plain source list
 for this plugin's own `web_search` meta (`{engine, status, sources}` — no
 `answer`). Styling is composed to read like a first-party dsh tool card:
 a borderless disclosure row (16px leading box whose globe crossfades to a
@@ -257,19 +262,73 @@ DisclosureRow / ToolRow / WebBlock module CSS under `dshn-` class names
 to the dsh bundle; primitives exports (TextShimmer, flow icons,
 LinkIconMedium) are used when present with identical inline-SVG fallbacks.
 
+The five rows and what each body card carries:
+
+| tool | header fragments | body |
+|---|---|---|
+| `web_search` | query (or "N queries") · hit count | the provider's per-query answer, else the source list |
+| `http_request` | `METHOD url` · status · content-type · cache id | raw response bytes (monospace) + response headers |
+| `web_fetch` | url · `→ final url` when redirected · status · content-type · link count | the page rendered as Markdown (`format: 'raw'` stays monospace) + outgoing links |
+| `web_sitemap` | domain / category / query · match counts | portal rows with badges, resolved search URLs, digest |
+| `web_config` | read/update · engine count (read) or change count (write) · persisted / refused | the 变更 list, then the live config as labelled groups + raw JSON |
+
+`web_config`'s row is the one whose subject IS the result, so its meta is
+unusually wide: `presentationMeta` persists the secret-free summary the model
+received (`config`) plus the field names a **landed** `set` forwarded
+(`changes`), because dsh hands the row `block.meta` and never the tool's value.
+Two rules keep it honest:
+
+- **A nested `undefined` is a rejected call.** The harness validates every meta
+  with a strict `JSON.parse(JSON.stringify(meta))` **deep**-equal, and
+  `summarize()` emits `endpoint: undefined` for an engine with no endpoint
+  override — which `JSON.stringify` silently drops. The meta therefore goes
+  through `jsonSafeMeta()` (dsh/evidence.js), the deep scrub
+  `compactPresentation()` deliberately is not. `presentationmeta.spec.ts` pins
+  the trap itself: the raw summary is shown to FAIL the deep round-trip while
+  the same value through `jsonSafeMeta` passes.
+- **Only a landed write has changes.** Both the safety gate and
+  `applyCardSettings`' own rejections answer `status: 'error'` with the config
+  untouched, so `changes` is emitted only for `status === 'ok' && action ===
+  'set'` — and it names exactly the fields `pickConfigPatch()` forwarded
+  (dsh/schemas.js), never the raw request. The row renders each change with the
+  value from the POST-write `config`, so a clamped write shows the clamp.
+
+The card body is built from the same DICTS field labels the 网络 settings page
+uses, and it reads `meta.config` defensively: a meta without it (a session
+recorded by an older build) renders the action, status and badges over a
+无配置数据 note instead of throwing. A refusal (soft `status: 'error'`) is an
+amber `.dshn-refused` block rather than the red error block a THROWN call
+gets — nothing failed, the tool declined, and the message tells the user which
+toggle to flip. `allowConfigEdit` can never appear in the card: the meta's
+config comes from `summarizeForModel()`, which strips it.
+
+`web_fetch`'s row reads `meta.contentPreview` — the host persists a page-sized
+preview of `value.content` in `presentationMeta` (same `previewText` clip and
+same trailing `…` marker as `http_request`'s `bodyPreview`, so a truncated
+preview is distinguishable from a complete one) together with `format`, the
+outgoing `links` and the cache descriptor. The row opens by default (a fetch IS
+the page the user asked to see), and its paging hint quotes the ABSOLUTE next
+offset — `cacheSlice.offset + shown`, never the slice-local length — for the
+same reason `renderFetchEvidence` does: a slice-local hint sends the next read
+back to the top of the document.
+
 Arguments are read via `argsOf`: a settled dsh block carries its arguments
 ONLY as the raw JSON string `block.call.argsRaw` (the native rows JSON.parse
 it — there is no pre-parsed `call.args`), with a literal `call.args` fallback
 for hosts/tests. Reading `call.args` alone is what once hid the "N 个查询"
-bit from the multi-query header. A settled block is detected by meta
-PRESENCE (a finished zero-hit call persists a meta object), not by hit count
-— the old test left such calls showing 搜索中… forever.
+bit from the multi-query header. Settled state comes from dsh's canonical
+`kind === 'tool-result'` (plus `isError`) check, with meta presence as a
+fallback — never from hit count, which left zero-hit calls and every THROWN
+call (a failing tool never lands a meta) shimmering forever.
 
 ### Markdown rendering in the tool cards
 
-Every answer/body string the rows show (`meta.answer`, the `web_sitemap`
-digest, the search panel's summary) goes through the host's `ui.MarkdownText`
-primitive. That primitive MUST be detected with `isRenderable(value)`, never
+Every answer/body string the rows show (`meta.answer`, the `web_fetch`
+`contentPreview`, the `web_sitemap` digest, the search panel's summary) goes
+through the host's `ui.MarkdownText` primitive — except a `web_fetch` /
+`http_request` body whose `format` is `raw`, which stays monospace because
+those bytes are not markdown. That primitive MUST be detected with
+`isRenderable(value)`, never
 `typeof value === 'function'`: dsh exports `MarkdownText` / `TextShimmer`
 through `React.memo`, so the shipped value is a memo object
 (`{ $$typeof: Symbol(react.memo), type, compare }`) and the function-only
