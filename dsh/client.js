@@ -320,6 +320,9 @@ window.__ModuleLoader__.load({
       return labels(lang)
     }
 
+    /** The host page's single React instance; bound by apply() (see isRenderable). */
+    var reactRef = null
+
     /**
      * Is `value` something React can render as an element type?
      *
@@ -342,12 +345,14 @@ window.__ModuleLoader__.load({
       var tag = value.$$typeof
       if (!tag) return typeof value.render === 'function'
       var tags = []
-      // `react` is bound inside apply() on purpose (the host page owns the
-      // single React instance), but this helper is exported and must stay
-      // callable on its own — compare against the memo/forwardRef/lazy tags
-      // that exist in every React copy in the process, then by description.
-      if (typeof react === 'object' && react) {
-        tags.push(react.memo, react.forwardRef, react.lazy)
+      // The host page owns the single React instance, so the reactor object
+      // arrives with apply(): `reactRef` is that binding (declared at factory
+      // scope, filled in apply). It is nullable because this helper is
+      // exported and must stay callable on its own — compare against the
+      // memo/forwardRef/lazy tags that exist in every React copy in the
+      // process, then by description.
+      if (reactRef) {
+        tags.push(reactRef.memo, reactRef.forwardRef, reactRef.lazy)
       }
       if (typeof Symbol === 'function' && Symbol.for) {
         tags.push(Symbol.for('react.memo'), Symbol.for('react.forward_ref'), Symbol.for('react.lazy'))
@@ -857,6 +862,8 @@ window.__ModuleLoader__.load({
             settleReady()
             return
           }
+          // Publish the instance for isRenderable (see reactRef).
+          reactRef = react
           var ui = tryRequire('@deepseek-ai/dsh-client-ui-primitives') || { Input: 'input' }
 
           // Package-local chunk loader. require.async('./client.<name>.js')

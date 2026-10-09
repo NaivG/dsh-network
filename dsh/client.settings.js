@@ -32,6 +32,13 @@ window.__ModuleLoader__.load({
     var putConfig = shared.putConfig
     var fetchHealth = shared.fetchHealth
     var STYLES = shared.STYLES
+    // The engine vocabulary lives in the entry; a chunk has NO access to the
+    // entry's file scope, so every one of them must be re-bound here by name.
+    // `ENGINE_LABELS` was read raw (the pre-split file-scope binding) and blew
+    // up the whole section with `ReferenceError: ENGINE_LABELS is not defined`
+    // — a free variable in a chunk is not a compile error, only a render-time
+    // crash. tests/client-chunks.spec.ts pins this class of defect.
+    var ENGINE_LABELS = shared.ENGINE_LABELS
 
     var ENGINE_DEFAULT_ENDPOINTS = {
       bing: 'https://www.bing.com/search',
@@ -204,6 +211,15 @@ window.__ModuleLoader__.load({
       var engines = Array.isArray(safeDraft.searchEngines) ? safeDraft.searchEngines.filter(function (n) { return typeof n === 'string' && n !== '' }) : []
       var configs = safeDraft.searchEngineConfigs && typeof safeDraft.searchEngineConfigs === 'object' ? safeDraft.searchEngineConfigs : {}
       var availableCategories = Object.keys(ENGINE_LABELS).filter(function (id) { return engines.indexOf(id) === -1 })
+      // `/dsh-network/config` answers `{ value, revision }` and the
+      // `summarize()` view inside `value` is where `hasGithubToken` lives —
+      // reading the wrapper's own field always yielded `undefined`, so the
+      // GitHub row claimed "Token 未配置" no matter what the host held. Accept
+      // the flattened view too (the exported RenderNetworkPage is called with
+      // either shape).
+      var safeSummary = summary || {}
+      var hasGithubToken = safeSummary.hasGithubToken === true
+        || !!(safeSummary.value && safeSummary.value.hasGithubToken === true)
 
       // dialog state + handlers — same shape as before; pulled into the
       // component because the engine list owns the dialog.
@@ -276,8 +292,8 @@ window.__ModuleLoader__.load({
         },
           h('span', { style: STYLES.engineCategoryText }, id),
           id === 'github'
-            ? h('span', { style: STYLES.engineTokenBadge(summary.hasGithubToken ? 'ok' : 'error') },
-              summary.hasGithubToken ? t.githubTokenRowOn : t.githubTokenRowOff)
+            ? h('span', { style: STYLES.engineTokenBadge(hasGithubToken ? 'ok' : 'error') },
+              hasGithubToken ? t.githubTokenRowOn : t.githubTokenRowOff)
             : null,
           needsKey
             ? h('span', { style: STYLES.engineTokenBadge(hasKey ? 'ok' : 'error') },
@@ -315,7 +331,7 @@ window.__ModuleLoader__.load({
 
       var dlgBody = dlg ? h(EngineDialog, {
         key: 'dlg', react: react, t: t, value: dlg,
-        hasGithubToken: summary.hasGithubToken === true,
+        hasGithubToken: hasGithubToken,
         onChange: setDlg,
         onCancel: closeEngineDialog,
         onSave: commitEngineDialog,

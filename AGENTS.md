@@ -103,7 +103,18 @@ only actor that can flip the toggle.
   it may require seed words (`react`) and the entry via
   `require('dsh-network')` (always materialized before a chunk runs),
   never another chunk — and it registers with
-  `window.__ModuleLoader__.load({ id, chunk, factory })`. The dsh host
+  `window.__ModuleLoader__.load({ id, chunk, factory })`. A chunk has NO
+  view of the entry's file scope: every shared symbol (including the
+  engine vocabulary `ENGINES` / `ENGINE_LABELS`) must be re-bound from
+  the `require('dsh-network')` object by name. A leftover free variable
+  is not a syntax error, a load error or a warning — the chunk
+  registers, materializes and exports happily, and then throws
+  `ReferenceError` inside React's render, which takes the whole
+  section down (`ENGINE_LABELS` in `client.settings.js` blanked the
+  entire 网络 page that way). `tests/client-chunks.spec.ts` guards the
+  class statically (TypeScript `checkJs` unresolved names) and
+  dynamically (every surface rendered through a faithful chunk loader).
+  The dsh host
   serves each chunk on demand at
   `/plugins/dsh-network/<chunk>?rev=…` with zero configuration (it
   reads any `client.*.js` sitting in the client entry's directory;
@@ -285,6 +296,9 @@ dsh-network/
 │   ├── client-toolview.render.spec.ts # vitest, browser half: mock module loader +
 │   │                           # react-dom/server — renders the real toolview chunks and
 │   │                           # pins memo-aware MarkdownText / TextShimmer detection
+│   ├── client-chunks.spec.ts   # vitest, browser half: the chunk contract — TS checkJs
+│   │                           # unresolved-name guard over all four client files +
+│   │                           # faithful chunk loader rendering every surface
 │   ├── schema-check.mjs        # node guard: tool schemas in the dsh host modules pass dsh-tools' subset (skips when dsh absent)
 │   ├── persist-smoke.mjs       # node smoke test for the durable config store (host half)
 │   └── server-smoke.mjs        # node smoke test for the loopback server (echo → /invoke → cache paging → /shutdown)
@@ -341,8 +355,8 @@ are bounded by `--max-results` (default 10, hard cap 20).
 
 ## Verification
 
-- `pnpm test` for the pure-module unit suite (~127 cases — vitest,
-  runs in ~3 s, no network). `tests/client-toolview.render.spec.ts`
+- `pnpm test` for the pure-module unit suite (~135 cases — vitest,
+  runs in ~6 s, no network). `tests/client-toolview.render.spec.ts`
   covers the browser half: it materializes the REAL `dsh/client.js`
   and `dsh/client.toolviews.js` through a mock of
   `@deepseek-ai/dsh-client-modules` (`window.__ModuleLoader__.load`,
@@ -352,6 +366,22 @@ are bounded by `--max-results` (default 10, hard cap 20).
   must be USED, not bypassed) and the degraded `{ Input }` fallback.
   Only `react` + `react-dom` are needed — `MarkdownText` itself is
   stubbed, so no dsh install is required.
+- `tests/client-chunks.spec.ts` covers the CHUNK contract the split
+  created, and is what catches "the settings page stopped rendering":
+  the split left `ENGINE_LABELS` as a free variable in
+  `client.settings.js`, and the section threw `ReferenceError` inside
+  React's render (the chunk itself loads and exports perfectly — no
+  syntax error, no console warning). It (a) builds a TypeScript
+  `checkJs` program over all four client files and fails on any
+  unresolved name, (b) asserts every chunk declares the loader-approved
+  `client.<name>.js` name and re-binds the entry through
+  `require('dsh-network')`, (c) asserts every `STYLES.<key>` a chunk
+  reads exists in the entry's table, and (d) materializes the real
+  chunks through a faithful chunk-aware loader (registrations keyed
+  `<owner>/<chunk>`, owner-relative `require.async`) and renders the
+  settings section, the loaded page with engine rows + both engine
+  dialogs, the legacy card, the sidebar panel and the toolview rows.
+  `typescript`, `react` and `react-dom` are the only requirements.
 - `pnpm run test:server` for the loopback server smoke
   (`tests/server-smoke.mjs`, plain node): spawns the built
   `dist/cli.cjs server`, points it at a local 25 000-char echo
