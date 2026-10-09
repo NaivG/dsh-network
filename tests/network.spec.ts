@@ -38,6 +38,11 @@ import {
   unwrapDuckDuckGoUrl,
 } from '../src/search-engines.ts'
 import { htmlToMarkdown } from '../src/html.ts'
+import {
+  cleanHtmlText,
+  decodeEntities,
+  extractVisibleTextFromHtml,
+} from '../src/html-extract.ts'
 import { buildRequestUrl } from '../src/http_request.ts'
 import { normalizeConfig } from '../src/config.ts'
 import { inferFileType, parseDocument } from '../src/document.ts'
@@ -50,7 +55,7 @@ import {
   normalizeSearxngEndpoint,
 } from '../src/engines/searxng.ts'
 import { BRAVE_API_KEY_ENV, BraveSearchEngine, buildBraveUrl } from '../src/engines/brave.ts'
-import { defaultRegistry, registerDefaultEngines } from '../src/engines/index.ts'
+import { cleanText, defaultRegistry, registerDefaultEngines } from '../src/engines/index.ts'
 import {
   WEB_SITEMAP,
   buildSearchUrl,
@@ -241,6 +246,138 @@ describe('search engine URL building', () => {
     expect(baiduSnippet('<div data-module="abstract"><span class="cu-line-clamp">S</span></div>')).toBe('S')
     expect(baiduSnippet('<span class="c-color">C</span>')).toBe('C')
     expect(baiduSnippet('<div></div>')).toBe('')
+  })
+})
+
+// ─────────────────────── HTML entity decoding ───────────────────────
+//
+// Source markup is entity-encoded, and every text node this package
+// emits goes to a Markdown renderer or a model that can only render
+// what it is given: a literal `&nbsp;` used to reach a result card, a
+// web_search answer and the model's own reply verbatim. These cases are
+// the regression fence for that.
+describe('decodeEntities', () => {
+  it('decodes the entities that actually show up in result markup', () => {
+    expect(decodeEntities('Aug 19, 2026&nbsp;&#0183;&#32;DeepSeek')).toBe('Aug 19, 2026 · DeepSeek')
+    expect(decodeEntities('&amp;NBSP HTML')).toBe('&NBSP HTML')
+    expect(decodeEntities("they&#x27;re built with code")).toBe("they're built with code")
+    expect(decodeEntities('&quot;quoted&quot; &lt;tag&gt;')).toBe('"quoted" <tag>')
+    expect(decodeEntities('&copy; 2026 &mdash; done&hellip;')).toBe('© 2026 — done…')
+    expect(decodeEntities('&rsquo; &ldquo;x&rdquo; &euro;5 &frac12;')).toBe('\u2019 \u201cx\u201d €5 ½')
+  })
+
+  it('resolves each reference exactly once (no double decode)', () => {
+    // `&amp;lt;` is the page ESCAPING the text "&lt;". Decoding it twice
+    // would hand the stripper a real `<` — the classic entity-injection
+    // bug this single pass exists to avoid.
+    expect(decodeEntities('&amp;lt;script&amp;gt;')).toBe('&lt;script&gt;')
+    expect(decodeEntities('a &amp;amp; b')).toBe('a &amp; b')
+  })
+
+  it('handles numeric, zero-padded and uppercase-entity forms', () => {
+    expect(decodeEntities('&#183;')).toBe('·')
+    expect(decodeEntities('&#0183;')).toBe('·')
+    expect(decodeEntities('&#x2F;')).toBe('/')
+    expect(decodeEntities('&#X2f;')).toBe('/')
+    expect(decodeEntities('&NBSP;')).toBe(' ')
+    // Uppercase HEX DIGITS too — `&#xE9;` is how a page that is *about*
+    // entity escaping (a reference table, a spec) writes it.
+    expect(decodeEntities('&#xE9;')).toBe('é')
+    expect(decodeEntities('&#XAB;')).toBe('\u00ab')
+    expect(decodeEntities('&ddagger;')).toBe('‡')
+  })
+
+  it('leaves unknown and out-of-range references visible instead of blanking them', () => {
+    expect(decodeEntities('&notarealentity;')).toBe('&notarealentity;')
+    expect(decodeEntities('a & b')).toBe('a & b')
+    // Surrogates and > U+10FFFF are not scalar values: emit nothing
+    // rather than a lone surrogate that breaks the UTF-8 encode.
+    expect(decodeEntities('x&#xD800;y')).toBe('xy')
+    expect(decodeEntities('x&#1114112;y')).toBe('xy')
+    expect(decodeEntities('x&#0;y')).toBe('xy')
+  })
+
+  it('normalizes every flavour of non-breaking whitespace to a space', () => {
+    expect(decodeEntities('a\u00a0b')).toBe('a b')
+    expect(decodeEntities('a&ensp;b&emsp;c&thinsp;d')).toBe('a b c d')
+    // Zero-width characters are dropped, not turned into a space: a page
+    // inserts U+200B to break a line INSIDE a word, so "a<ZWSP>b" is the
+    // single word "ab" and `&shy;` is a hyphenation hint, not content.
+    expect(decodeEntities('a\u200bb')).toBe('ab')
+    expect(decodeEntities('un\u00adbroken')).toBe('unbroken')
+    expect(decodeEntities('a&shy;b')).toBe('ab')
+    expect(decodeEntities('a\ufeffb')).toBe('ab')
+  })
+})
+
+describe('cleanHtmlText / extractVisibleTextFromHtml', () => {
+  it('cleanText (engine helper) strips tags AND decodes in one step', () => {
+    expect(cleanText('<b>R&amp;D</b> &#8212; <span>1&nbsp;000</span>')).toBe('R&D — 1 000')
+    expect(cleanText('  \n <em>a</em>\t b ')).toBe('a b')
+  })
+
+  it('extractVisibleTextFromHtml decodes the title and the body', () => {
+    const { title, text } = extractVisibleTextFromHtml(
+      '<html><head><title>Caf&eacute; &amp; Bar</title></head>' +
+        '<body><p>First&nbsp;line</p><p>Second &#8212; line</p></body></html>',
+    )
+    expect(title).toBe('Café & Bar')
+    expect(text).toBe('First line\nSecond — line')
+  })
+
+  it('extractVisibleTextFromHtml keeps an empty title null, not an empty string', () => {
+    expect(extractVisibleTextFromHtml('<html><head><title>  </title></head><body>x</body></html>').title).toBeNull()
+    expect(extractVisibleTextFromHtml('<html><body>x</body></html>').title).toBeNull()
+  })
+})
+
+describe('search engines decode entities at the parser boundary', () => {
+  it('parseBingResults: the date separator entity decodes in the snippet', () => {
+    const html =
+      '<li class="b_algo"><h2><a href="https://example.org/a">R&amp;D Tools</a></h2>' +
+      '<p>Aug 19, 2026&nbsp;&#0183;&#32;Plugin to manage &quot;proxy&quot;.</p></li>'
+    const [hit] = parseBingResults(html, 10)
+    expect(hit?.title).toBe('R&D Tools')
+    expect(hit?.snippet).toBe('Aug 19, 2026 · Plugin to manage "proxy".')
+  })
+
+  it('parseDuckDuckGoResults: titles and snippets decode', () => {
+    const html =
+      '<a class="result__a" href="https://example.org/r">&amp;NBSP HTML: Examples</a>' +
+      '<a class="result__snippet" href="#">It&#x27;s a non&nbsp;breaking space.</a>'
+    const [hit] = parseDuckDuckGoResults(html, 10)
+    expect(hit?.title).toBe('&NBSP HTML: Examples')
+    expect(hit?.snippet).toBe("It's a non breaking space.")
+  })
+
+  it('parseBaiduResults: titles and every snippet layout decode', () => {
+    const html =
+      '<div class="c-container"><h3><a href="https://real.example/1">A &amp; B</a></h3>' +
+      '<div data-module="abstract"><span class="cu-line-clamp">1&nbsp;000&#183;res</span></div></div>'
+    const [hit] = parseBaiduResults(html, 10)
+    expect(hit?.title).toBe('A & B')
+    expect(hit?.snippet).toBe('1 000·res')
+  })
+
+  it('never emits a raw reference for any of the three scraped engines', () => {
+    // The end-to-end assertion the bug report maps to: whatever shape the
+    // markup takes, no `&...;` reaches the model or a card.
+    const fragments = [
+      parseBingResults('<li class="b_algo"><h2><a href="https://e.org/1">T&amp;T</a></h2><p>a&nbsp;b</p></li>', 5),
+      parseDuckDuckGoResults(
+        '<a class="result__a" href="https://e.org/2">T&#39;s</a><a class="result__snippet" href="#">a&nbsp;b</a>',
+        5,
+      ),
+      parseBaiduResults(
+        '<div class="c-container"><h3><a href="https://e.org/3">T&amp;T</a></h3><span class="c-abstract">a&nbsp;b</span></div>',
+        5,
+      ),
+    ]
+    for (const hits of fragments) {
+      expect(hits.length).toBe(1)
+      expect(hits[0]?.title).not.toMatch(/&[a-z#][a-z0-9]*;/i)
+      expect(hits[0]?.snippet).not.toMatch(/&[a-z#][a-z0-9]*;/i)
+    }
   })
 })
 
@@ -863,6 +1000,29 @@ describe('htmlToMarkdown', () => {
     expect(md).not.toContain('alert')
     expect(md).not.toContain('Menu')
     expect(md).toContain('Keep')
+  })
+  it('htmlToMarkdown: decodes entities in prose, links, headings and table cells', () => {
+    const md = htmlToMarkdown(
+      '<h2>R&amp;D &mdash; Index</h2>' +
+        '<p>1&nbsp;000&nbsp;records &#8212; see <a href="https://x.example/q?a=1&amp;b=2">Q&amp;A</a></p>' +
+        '<table><tr><td>a&nbsp;b</td><td>&lt;tag&gt;</td></tr></table>',
+    )
+    expect(md).toContain('## R&D — Index')
+    expect(md).toContain('1 000 records — see')
+    expect(md).toContain('[Q&A](https://x.example/q?a=1&b=2)')
+    expect(md).toContain('| a b | <tag> |')
+  })
+  it('htmlToMarkdown: a decoded entity cannot re-enter as markup', () => {
+    // The page ESCAPED the literal text "&lt;script&gt;": the marker must
+    // survive as visible text, never be re-decoded into a tag.
+    const md = htmlToMarkdown('<p>&amp;lt;script&amp;gt; is escaped</p>')
+    expect(md).toBe('&lt;script&gt; is escaped')
+  })
+  it('htmlToMarkdown: decodes entities inside code fences (pages escape them there)', () => {
+    const md = htmlToMarkdown('<pre>&lt;div class=&quot;x&quot;&gt;&amp;nbsp;&lt;/div&gt;</pre>')
+    expect(md).toContain('<div class="x">')
+    // `&amp;nbsp;` renders as the five visible characters "&nbsp;".
+    expect(md).toContain('&nbsp;</div>')
   })
 })
 

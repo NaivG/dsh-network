@@ -30,7 +30,7 @@ import {
   type SearchEngine,
   type SearchSource,
   composeEngineUrl,
-  stripTags,
+  cleanText,
   FIREFOX_DUCKDUCKGO,
 } from './index.ts'
 
@@ -50,7 +50,7 @@ export class DuckDuckGoSearchEngine implements SearchEngine {
     const snippetRe = /<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>([\s\S]*?)<\/a>/gi
     let snippetMatch: RegExpExecArray | null
     while ((snippetMatch = snippetRe.exec(html))) {
-      snippets.push(stripTags(snippetMatch[1] ?? '').replace(/\s+/g, ' ').trim())
+      snippets.push(cleanText(snippetMatch[1] ?? ''))
     }
 
     const out: SearchSource[] = []
@@ -58,7 +58,7 @@ export class DuckDuckGoSearchEngine implements SearchEngine {
     let m: RegExpExecArray | null
     let i = 0
     while ((m = anchorRe.exec(html)) && out.length < max) {
-      const title = stripTags(m[2] ?? '').replace(/\s+/g, ' ').trim()
+      const title = cleanText(m[2] ?? '')
       const url = DuckDuckGoSearchEngine.unwrapUrl(m[1] ?? '')
       if (!title || !url || url === 'https://duckduckgo.com') continue
       if (/duckduckgo\.com\/y\.js/i.test(url)) continue // sponsored ad click-tracker

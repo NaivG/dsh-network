@@ -21,6 +21,7 @@
  *      inside `registerDefaultEngines()`.
  */
 import { appendQuery } from '../network.ts'
+import { cleanHtmlText } from '../html-extract.ts'
 
 /** One search hit: a URL, its title, and an optional snippet. */
 export interface SearchSource {
@@ -253,9 +254,28 @@ export class SearchEngineRegistry {
  * Strip HTML tags from a string. Used by every engine's parser because
  * we do not pull in an HTML DOM library — regex parsing keeps the
  * engines dependency-free.
+ *
+ * Tag-stripping alone is NOT safe for anything a human or a model reads:
+ * the leftover text still carries character references (`&nbsp;`,
+ * `&#x27;`, `&amp;`). Every title/snippet extraction goes through
+ * `cleanText` below instead; this stays exported for structural callers
+ * (URL fragments) where a text decode would be wrong.
  */
 export function stripTags(s: string): string {
   return String(s).replace(/<[^>]*>/g, '')
+}
+
+/**
+ * `stripTags` + entity decode + whitespace collapse — the one way an
+ * engine turns a markup fragment into text.
+ *
+ * Skipping the decode is how `&amp;NBSP HTML: Examples` reached a result
+ * card, a `web_search` answer and the model's own reply: the engines
+ * handed raw references straight through and everything downstream
+ * rendered them literally.
+ */
+export function cleanText(html: string): string {
+  return cleanHtmlText(html)
 }
 
 /** Decode a base64url string (Bing `u=a1<...>` redirect). */

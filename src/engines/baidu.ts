@@ -33,7 +33,7 @@ import {
   type SearchEngine,
   type SearchSource,
   composeEngineUrl,
-  stripTags,
+  cleanText,
   FIREFOX_BAIDU,
 } from './index.ts'
 
@@ -59,7 +59,7 @@ export class BaiduSearchEngine implements SearchEngine {
       // Prefer the `mu` attribute (real URL); fall back to the anchor href.
       const mu = /\bmu="([^"]*)"/i.exec(block)
       const url = mu && mu[1] ? mu[1] : h3[1] ?? ''
-      const title = stripTags(h3[2] ?? '').replace(/\s+/g, ' ').trim()
+      const title = cleanText(h3[2] ?? '')
       if (!url || !title) continue
       const source: SearchSource = { url, title }
       const snippet = BaiduSearchEngine.extractSnippet(block)
@@ -77,16 +77,16 @@ export class BaiduSearchEngine implements SearchEngine {
   static extractSnippet(block: string): string {
     // 1) data-module="abstract" + cu-line-clamp-{2,3} (newest standard layout)
     const mod = /data-module="abstract"[\s\S]*?<span[^>]*class="[^"]*cu-line-clamp[^"]*"[^>]*>([\s\S]*?)<\/span>/i.exec(block)
-    if (mod && mod[1]) return stripTags(mod[1]).replace(/\s+/g, ' ').trim()
+    if (mod && mod[1]) return cleanText(mod[1])
     // 2) bare cu-line-clamp-{2,3,4} anywhere in the container
     const clamp = /class="[^"]*cu-line-clamp[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(block)
-    if (clamp && clamp[1]) return stripTags(clamp[1]).replace(/\s+/g, ' ').trim()
+    if (clamp && clamp[1]) return cleanText(clamp[1])
     // 3) legacy c-abstract
     const abs = /class="[^"]*c-abstract[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(block)
-    if (abs && abs[1]) return stripTags(abs[1]).replace(/\s+/g, ' ').trim()
+    if (abs && abs[1]) return cleanText(abs[1])
     // 4) rich-card descriptive .c-color
     const color = /class="[^"]*c-color[^"]*"[^>]*>([\s\S]*?)<\/(?:span|div)>/i.exec(block)
-    if (color && color[1]) return stripTags(color[1]).replace(/\s+/g, ' ').trim()
+    if (color && color[1]) return cleanText(color[1])
     return ''
   }
 }

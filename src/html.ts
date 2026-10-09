@@ -5,40 +5,14 @@
  *   - the dedicated block renderer in `dsh/client.js` (Markdown is the
  *     body the result view shows when the browser has no rich renderer
  *     for a given HTML snippet).
+ *
+ * Tag-stripping and entity-decoding live in `html-extract.ts` so the
+ * search engines and this converter decode character references through
+ * ONE table. The decode runs exactly once, at the very end, after the
+ * markup is gone — decoding earlier would let a page's own `&amp;lt;`
+ * reach the stripper as `<` and re-enter as markup.
  */
-
-function safeCodePoint(cp: number): string {
-  if (!Number.isFinite(cp) || cp <= 0 || cp > 0x10ffff) return ''
-  try {
-    return String.fromCodePoint(cp)
-  } catch {
-    return ''
-  }
-}
-
-export function decodeEntities(s: string): string {
-  return String(s)
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&apos;/g, "'")
-    .replace(/&copy;/gi, '©')
-    .replace(/&mdash;/gi, '—')
-    .replace(/&ndash;/gi, '–')
-    .replace(/&hellip;/gi, '…')
-    .replace(/&times;/gi, '×')
-    .replace(/&middot;/gi, '·')
-    .replace(/&bull;/gi, '•')
-    .replace(/&#x([0-9a-f]+);/gi, (_m, hex: string) => safeCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_m, dec: string) => safeCodePoint(parseInt(dec, 10)))
-}
-
-function stripTags(s: string): string {
-  return String(s).replace(/<[^>]*>/g, '')
-}
+import { decodeEntities, stripTags } from './html-extract.js'
 
 export function htmlToMarkdown(html: string): string {
   let s = String(html)

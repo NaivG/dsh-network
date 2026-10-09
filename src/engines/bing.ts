@@ -30,8 +30,8 @@ import {
   type SearchEngine,
   type SearchSource,
   b64UrlDecode,
+  cleanText,
   composeEngineUrl,
-  stripTags,
   FIREFOX_BING,
 } from './index.ts'
 
@@ -58,11 +58,11 @@ export class BingSearchEngine implements SearchEngine {
       const anchor = /<h2[^>]*>[\s\S]*?<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<\/h2>/i.exec(chunk)
       if (!anchor) continue
       const href = anchor[1] ?? ''
-      const title = stripTags(anchor[2] ?? '').replace(/\s+/g, ' ').trim()
+      const title = cleanText(anchor[2] ?? '')
       const url = BingSearchEngine.unwrapBingUrl(href)
       if (!url || !title) continue
       const pMatch = /<p[^>]*>([\s\S]*?)<\/p>/i.exec(chunk)
-      const snippet = pMatch ? stripTags(pMatch[1] ?? '').replace(/\s+/g, ' ').trim() : ''
+      const snippet = pMatch ? cleanText(pMatch[1] ?? '') : ''
       const source: SearchSource = { url, title }
       if (snippet) source.snippet = snippet
       out.push(source)

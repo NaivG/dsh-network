@@ -17,6 +17,7 @@ export {
   registerDefaultEngines,
   b64UrlDecode,
   stripTags,
+  cleanText,
   composeEngineUrl,
 } from './engines/index.ts'
 
