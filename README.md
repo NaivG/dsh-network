@@ -6,6 +6,8 @@
 
 Let DeepSeek Harness access the internet seamlessly.
 
+**English** | [简体中文](README.ZH.md)
+
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc1-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
