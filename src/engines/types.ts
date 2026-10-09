@@ -27,6 +27,38 @@ export interface SearchSource {
   url: string
   title: string
   snippet?: string
+  /**
+   * Publication date, when the engine's JSON response carries one (Brave's
+   * `page_age`). Snake_case because this is the CLI envelope's wire shape:
+   * `toSearchSources` in the host maps it to the seam's `publishedAt` and
+   * both renderSearchEvidence / renderSearchSourceItem show it. Optional on
+   * purpose — engines that only scrape HTML leave it undefined.
+   */
+  published_at?: string
+}
+
+/**
+ * Env knobs the CLI reads for the keyed engines, paired with HOW the
+ * credential rides on a request. Declaring it on the engine keeps the
+ * per-provider quirk (Brave's `X-Subscription-Token` vs a Bearer token)
+ * inside the engine while the CLI stays the only actor that ever holds the
+ * secret — the engine sees `options.hasApiKey`, never the key itself.
+ *
+ * Engines WITHOUT an `auth` block are the keyless HTML scrapers, whose
+ * reachability is checked by fetching rather than by a token.
+ */
+export interface EngineAuth {
+  /** Header the credential travels in (case-insensitive on the wire). */
+  readonly header: string
+  /** Header value format: `raw` (default) or `bearer` (prepends `Bearer `). */
+  readonly scheme?: 'raw' | 'bearer'
+  /**
+   * Env var the CLI resolves the key from. `DSH_NETWORK_SEARCH_ENGINE_API_KEYS`
+   * (a JSON `{ engineId: key }` map the host builds per invoke) is always
+   * consulted first; this name is the single-engine override a caller can set
+   * by hand, so `dsh-network search --engine brave` works standalone.
+   */
+  readonly apiKeyEnv: string
 }
 
 /**
@@ -98,6 +130,15 @@ export interface SearchEngine {
   readonly displayName: string
   /** The endpoint host the engine hits; surfaced for SSRF allowlists. */
   readonly endpoint: string
+
+  /**
+   * OPTIONAL — keyed engines only (Brave, …). Declares the credential
+   * header and the env var the CLI resolves the key from. Present means the
+   * CLI sends no request at all when the key is missing: it synthesizes an
+   * auth-failure body so the engine classifies it on the same code path as
+   * a real 401/403 (the `requiresToken` trick GitHub uses, generalized).
+   */
+  readonly auth?: EngineAuth
 
   /**
    * Browser-shaped request headers. The CLI passes these to `runClientFetch`
@@ -236,4 +277,31 @@ export function b64UrlDecode(s: string): string | null {
  */
 export function composeEngineUrl(endpoint: string, primaryKey: string, primaryValue: string, extras?: Record<string, string>): string {
   return appendQuery(endpoint, { [primaryKey]: primaryValue, ...(extras ?? {}) })
+}
+
+/**
+ * Read one engine's per-engine options out of `DSH_NETWORK_ENGINE_OPTIONS`.
+ *
+ * The host serializes the settings UI's free-form `options` textarea (one
+ * JSON map, `{ engineId: { ... } }`) into that env var on every `/invoke`,
+ * so a user can target `country=DE` / `freshness=pw` at one engine without
+ * a schema change or a CLI restart. Pure, sync, never throws: a malformed
+ * value degrades to "no options", exactly like an unset one.
+ */
+export function readEngineEnvOptions(
+  engineId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Readonly<Record<string, unknown>> {
+  const raw = env.DSH_NETWORK_ENGINE_OPTIONS
+  if (typeof raw !== 'string' || raw.trim() === '') return {}
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return {}
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+  const perEngine = (parsed as Record<string, unknown>)[engineId]
+  if (!perEngine || typeof perEngine !== 'object' || Array.isArray(perEngine)) return {}
+  return perEngine as Record<string, unknown>
 }

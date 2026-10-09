@@ -274,11 +274,11 @@ const WEB_CONFIG_PATCH_SCHEMA = {
     searchEngines: {
       type: 'array',
       items: { type: 'string' },
-      description: 'Search-engine chain order; one of bing, duckduckgo, baidu, github, searxng.',
+      description: 'Search-engine chain order; one of bing, duckduckgo, baidu, github, searxng, brave.',
     },
     searchEngineConfigs: {
       type: 'object',
-      description: 'Per-engine overrides (endpoint, hasApiKey, options).',
+      description: 'Per-engine overrides (endpoint, hasApiKey, options). Engine API keys are NOT writable here — set them from the settings page.',
     },
     httpMethods: {
       type: 'array',

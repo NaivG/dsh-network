@@ -109,6 +109,45 @@ export function configToEnv(config) {
   if (searxng && typeof searxng.endpoint === 'string' && searxng.endpoint.trim() !== '') {
     env.DSH_NETWORK_SEARXNG_URL = searxng.endpoint.trim()
   }
+  // ── keyed engines (Brave, …) ──────────────────────────────────────────
+  // Two maps ride the snapshot. The KEYS map is the credential channel: the
+  // browser collects engine API keys, `applyCardSettings` stores them on the
+  // live config, and this is the hop that carries them to the CLI. Before
+  // this existed the settings page happily stored keys nothing ever read —
+  // every engine saw `hasApiKey: false` and no engine could authenticate.
+  // The OPTIONS map is the free-form per-engine textarea (country, freshness,
+  // …); engines validate their own fields.
+  //
+  // Secrets travel only over the loopback socket, and the browser still sees
+  // nothing but `hasApiKey` (see summarize()).
+  const keys = {}
+  const storedKeys =
+    c.searchEngineApiKeys && typeof c.searchEngineApiKeys === 'object' ? c.searchEngineApiKeys : {}
+  for (const [id, value] of Object.entries(storedKeys)) {
+    if (typeof value === 'string' && value.trim() !== '') keys[id] = value
+  }
+  // The pre-existing GitHub token joins the same channel so one code path
+  // authenticates every keyed engine; DSH_NETWORK_GITHUB_TOKEN stays set
+  // alongside it for CLI-side back-compat.
+  if (typeof c.githubToken === 'string' && c.githubToken.trim() !== '') {
+    keys.github = c.githubToken
+  }
+  if (Object.keys(keys).length > 0) {
+    env.DSH_NETWORK_SEARCH_ENGINE_API_KEYS = JSON.stringify(keys)
+  }
+  const options = {}
+  const configured =
+    c.searchEngineConfigs && typeof c.searchEngineConfigs === 'object' ? c.searchEngineConfigs : {}
+  for (const [id, entry] of Object.entries(configured)) {
+    if (!entry || typeof entry !== 'object') continue
+    const opts = entry.options
+    if (opts && typeof opts === 'object' && !Array.isArray(opts) && Object.keys(opts).length > 0) {
+      options[id] = opts
+    }
+  }
+  if (Object.keys(options).length > 0) {
+    env.DSH_NETWORK_ENGINE_OPTIONS = JSON.stringify(options)
+  }
   return env
 }
 

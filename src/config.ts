@@ -21,7 +21,7 @@ export const HTTP_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'O
 export type HttpMethod = (typeof HTTP_METHODS)[number]
 
 export const DEFAULT_SEARCH_ENGINES = ['bing', 'duckduckgo', 'baidu'] as const
-export const SEARCH_ENGINE_IDS = new Set<string>(['bing', 'duckduckgo', 'baidu', 'github', 'searxng'])
+export const SEARCH_ENGINE_IDS = new Set<string>(['bing', 'duckduckgo', 'baidu', 'github', 'searxng', 'brave'])
 export const GITHUB_INDEX_IDS = new Set<string>(['repositories', 'code', 'issues', 'users'])
 export const GITHUB_SORTS = ['best', 'stars', 'updated'] as const
 
@@ -87,7 +87,11 @@ export function normalizeConfig(raw: unknown): Config {
   assertPositive('searchMaxResults', config.searchMaxResults)
   for (const engine of config.searchEngines) {
     if (!SEARCH_ENGINE_IDS.has(engine)) {
-      throw new Error(`dsh-network: unknown search engine "${engine}" (bing | duckduckgo | baidu | github | searxng)`)
+      // Derived from the id set so the message can never drift from the
+      // vocabulary that actually gates the field.
+      throw new Error(
+        `dsh-network: unknown search engine "${engine}" (${[...SEARCH_ENGINE_IDS].join(' | ')})`,
+      )
     }
   }
   const githubIndexes = new Set<string>()

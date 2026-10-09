@@ -25,6 +25,7 @@ export { DuckDuckGoSearchEngine } from './duckduckgo.ts'
 export { BaiduSearchEngine } from './baidu.ts'
 export { GitHubSearchEngine, routeGithubIndexes } from './github.ts'
 export { SearxngSearchEngine, SEARXNG_DEFAULT_ENDPOINT, SEARXNG_ENV, buildSearxngUrl, normalizeSearxngEndpoint } from './searxng.ts'
+export { BraveSearchEngine, BRAVE_ENDPOINT, BRAVE_API_KEY_ENV, BRAVE_AUTH_HEADER, buildBraveUrl } from './brave.ts'
 // web_sitemap is the curated portal catalog used by the LLM to pick
 // authoritative sources. It lives outside the engine registry (it is
 // pure data, not a search backend) so we only re-export it from here
@@ -37,12 +38,13 @@ import { DuckDuckGoSearchEngine } from './duckduckgo.ts'
 import { BaiduSearchEngine } from './baidu.ts'
 import { GitHubSearchEngine } from './github.ts'
 import { SearxngSearchEngine } from './searxng.ts'
+import { BraveSearchEngine } from './brave.ts'
 
 /** The process-wide registry. Call `registerDefaultEngines` at startup. */
 export const defaultRegistry = new SearchEngineRegistry()
 
 /**
- * Register Bing, DuckDuckGo, Baidu, GitHub, and SearXNG as the default
+ * Register Bing, DuckDuckGo, Baidu, GitHub, SearXNG, and Brave as the
  * search chain.
  *
  * Order matters: the chain runs engines in registration order, so the
@@ -54,8 +56,11 @@ export const defaultRegistry = new SearchEngineRegistry()
  * bing,duckduckgo,baidu) — users opt in via the env var or the settings
  * UI, and its requests get loopback access only when the configured
  * endpoint is itself private (see `engineAllowsPrivate` in cli.ts).
- * Users can override the chain order via the `DSH_NETWORK_SEARCH_ENGINES`
- * env var.
+ * Brave is registered after it for the same reason plus one more: it is
+ * billed per query (no free tier since Feb 2026), so it must never sit in
+ * a default chain that could silently spend money. Users add or pin it
+ * explicitly. Users can override the chain order via the
+ * `DSH_NETWORK_SEARCH_ENGINES` env var.
  */
 export function registerDefaultEngines(registry: SearchEngineRegistry = defaultRegistry): readonly SearchEngine[] {
   const engines: SearchEngine[] = [
@@ -64,6 +69,7 @@ export function registerDefaultEngines(registry: SearchEngineRegistry = defaultR
     new BaiduSearchEngine(),
     new GitHubSearchEngine(),
     new SearxngSearchEngine(),
+    new BraveSearchEngine(),
   ]
   for (const e of engines) registry.register(e)
   return engines

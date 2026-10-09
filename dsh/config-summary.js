@@ -17,7 +17,14 @@ function summarize(config) {
   const engines = Array.isArray(config.searchEngines) ? config.searchEngines : []
   const cfgMap = config.searchEngineConfigs && typeof config.searchEngineConfigs === 'object' ? config.searchEngineConfigs : {}
   const searchEngineConfigs = {}
-  for (const id of engines) {
+  // Iterate over the chain AND any engine that already carries settings. An
+  // engine is normally configured BEFORE it joins the chain (you paste the
+  // Brave key while it is still only in the "add engine" list), so keying
+  // this loop off the chain alone dropped that engine from the summary —
+  // the settings dialog then reopened as "no API key configured" even
+  // though the key was stored, and any later edit wrote `hasApiKey: false`
+  // back over it.
+  for (const id of new Set([...engines, ...Object.keys(cfgMap)])) {
     const entry = cfgMap[id]
     if (!entry || typeof entry !== 'object') continue
     searchEngineConfigs[id] = {

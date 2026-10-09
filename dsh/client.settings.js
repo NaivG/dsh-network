@@ -45,19 +45,21 @@ window.__ModuleLoader__.load({
       duckduckgo: 'https://html.duckduckgo.com/html',
       baidu: 'https://www.baidu.com/s',
       github: 'https://api.github.com/search',
+      brave: 'https://api.search.brave.com/res/v1/web/search',
       // SearXNG is deliberately NOT here: it is self-hosted, so its
       // endpoint must stay editable in the engine dialog (built-in engines
       // with a fixed endpoint get a locked input). The loopback default
       // lives in the host's defaultConfig seed.
     }
-    var ENGINE_HAS_API_KEY = { bing: false, duckduckgo: false, baidu: false, github: false, searxng: false }
+    var ENGINE_HAS_API_KEY = { bing: false, duckduckgo: false, baidu: false, github: false, searxng: false, brave: true }
     // GitHub engine: token / indexes / sort live inside the engine edit
     // dialog (config.githubToken / githubIndexes / githubSort), committed
-    // through githubSettingsPatch() on save.
+    // through githubSettingsPatch() on save. Brave's key rides the generic
+    // `searchEngineConfigs[id].apiKey` path (see the needsKey block below).
     var GITHUB_INDEX_LABELS = { repositories: 'Repositories', code: 'Code', issues: 'Issues', users: 'Users' }
     var GITHUB_SORTS = ['best', 'stars', 'updated']
     /** Per-engine one-line description shown inside the edit dialog. */
-    var ENGINE_HINTS = { bing: 'engineHintBing', duckduckgo: 'engineHintDuckduckgo', baidu: 'engineHintBaidu', github: 'githubHint', searxng: 'searxngHint' }
+    var ENGINE_HINTS = { bing: 'engineHintBing', duckduckgo: 'engineHintDuckduckgo', baidu: 'engineHintBaidu', github: 'githubHint', searxng: 'searxngHint', brave: 'braveHint' }
 
     /** Build the github settings patch from a draft. The token is
      *  write-only: a non-empty typed value stores the key, the magic

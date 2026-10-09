@@ -220,6 +220,53 @@ only actor that can flip the toggle.
   endpoint is read from `DSH_NETWORK_SEARXNG_URL`, and private-
   network access is granted only when the configured endpoint is
   itself loopback/private.
+- **Keyed engines (`auth` + one credential channel)**. An engine may
+  declare `auth = { header, scheme, apiKeyEnv }` (Brave: the
+  `X-Subscription-Token` header; GitHub's Bearer token is folded into
+  the same map). The CLI — never the engine — holds the secret: it
+  resolves `DSH_NETWORK_SEARCH_ENGINE_API_KEYS[engineId]` (a JSON map
+  `configToEnv()` packs into every `/invoke` env snapshot), falls back
+  to the engine's single-engine `apiKeyEnv`, then to the legacy
+  `DSH_NETWORK_GITHUB_TOKEN`, and injects the header. Engines receive
+  only `hasApiKey`. With no key the CLI sends NO request at all: it
+  synthesizes a 401 body so the engine classifies "no credential" and
+  "rejected credential" on one code path — the general form of the
+  `requiresToken` trick GitHub's code index already used. This is the
+  hop that was MISSING until the Brave engine landed: the browser
+  collected engine API keys, `applyCardSettings` stored them,
+  `persist.js` snapshotted them, `persist-smoke.mjs` asserted them —
+  and `configToEnv()` never sent them anywhere, so every engine saw
+  `hasApiKey: false` and no keyed engine could ever authenticate.
+  `tests/engine-config-wiring.spec.ts` pins the env var NAMES on both
+  sides (a rename on one side only degrades silently to "unset").
+- **Per-engine options**. `DSH_NETWORK_ENGINE_OPTIONS` carries the
+  settings dialog's free-form `key=value` textarea as
+  `{ engineId: { … } }`; an engine reads its own slice with
+  `readEngineEnvOptions(id)` (pure, never throws) and validates every
+  field itself before it reaches a URL, so a typo cannot burn a billed
+  call on a 422. Brave's `buildBraveUrl` is the reference: unknown keys
+  and out-of-vocabulary values are dropped, `count` comes from the call
+  cap (`perPage`, clamped to Brave's 20) with `max` as the standalone
+  fallback, and `extra_snippets=true` is always on so `page_age` /
+  extra excerpts reach `published_at` and the snippet.
+- **A configured engine outside the chain still reports its settings**.
+  `summarize()` iterates `searchEngines` UNION the keys of
+  `searchEngineConfigs` — the real order of operations is "paste the key
+  in the engine dialog, THEN add the engine to the chain", so keying that
+  loop off the chain alone hid the entry, reopened the dialog as "no API
+  key configured", and let the next save write `hasApiKey: false` back
+  over a stored key.
+- **Brave `page_age` needs a plausibility gate**. Real responses carry
+  broken values (a live query returned `1970-01-19T20:35:52` for a modern
+  page — an upstream epoch-seconds field read as ms) as well as relative
+  shapes. `plausiblePublishedAt` accepts only an ISO-8601 timestamp whose
+  year lands in [1990, next year]; anything else is dropped, because a
+  wrong date in the evidence is worse than no date.
+- **`web_search` is NOT cached by the loopback server** (only
+  fetch/http bodies are), so two identical searches in one turn bill the
+  engine twice. Known, accepted: a search cache would need an explicit
+  invalidation story, and a stale hit list is its own defect. Worth
+  revisiting if a billed engine ever joins the DEFAULT chain.
 
 ```bash
 pnpm install          # runs `prepare` → builds dist/cli.cjs automatically
@@ -280,18 +327,22 @@ dsh-network/
 │   ├── search-engines.ts       # BACKWARD-COMPAT shim → re-exports from ./engines
 │   ├── config.ts               # CLI-side runtime config (env knobs)
 │   └── engines/                # search engine registry + per-engine implementations
-│       ├── types.ts            # SearchEngine interface, SearchEngineRegistry, helpers
+│       ├── types.ts            # SearchEngine interface (+ EngineAuth), SearchEngineRegistry, readEngineEnvOptions, helpers
 │       ├── header-profiles.ts  # Firefox-127 baseline + per-engine overlays
 │       ├── bing.ts             # BingSearchEngine
 │       ├── duckduckgo.ts       # DuckDuckGoSearchEngine
 │       ├── baidu.ts            # BaiduSearchEngine
 │       ├── github.ts           # GitHubSearchEngine (hybrid REST, RRF fusion)
 │       ├── searxng.ts          # SearxngSearchEngine (self-hosted JSON API)
+│       ├── brave.ts            # BraveSearchEngine (keyed JSON API, X-Subscription-Token)
 │       └── index.ts            # barrel + registerDefaultEngines()
 ├── tests/
 │   ├── network.spec.ts         # vitest, zero-network unit tests
 │   ├── cache.spec.ts           # vitest, ResultCache (dedup, slice, eviction, degrade)
 │   ├── host-cache-slice.spec.ts# vitest, host-side cacheSlice pass-through contract
+│   ├── engine-config-wiring.spec.ts # vitest, keyed-engine credential/options handoff:
+│   │                           # configToEnv env-var names ↔ readEngineEnvOptions, +
+│   │                           # summarize() surfacing configs outside the chain
 │   ├── presentationmeta.spec.ts# vitest, presentation_metadata envelope fields
 │   ├── client-toolview.render.spec.ts # vitest, browser half: mock module loader +
 │   │                           # react-dom/server — renders the real toolview chunks and
@@ -355,7 +406,7 @@ are bounded by `--max-results` (default 10, hard cap 20).
 
 ## Verification
 
-- `pnpm test` for the pure-module unit suite (~135 cases — vitest,
+- `pnpm test` for the pure-module unit suite (~160 cases — vitest,
   runs in ~6 s, no network). `tests/client-toolview.render.spec.ts`
   covers the browser half: it materializes the REAL `dsh/client.js`
   and `dsh/client.toolviews.js` through a mock of
@@ -413,6 +464,13 @@ are bounded by `--max-results` (default 10, hard cap 20).
 - `pnpm build` to produce `dist/cli.cjs` + `dist/server-*.cjs`;
   smoke-test with `node ./dist/cli.cjs -u https://example.com/ --allow-private-network`.
 - Real end-to-end runs cost public-engine budget: ask before bulk.
+  The Brave engine is BILLED PER QUERY (its free tier is gone), so it sits
+  last in the registry, is absent from the default chain, and — because the
+  CLI short-circuits a keyed engine with no key — it sends no request at
+  all until a key exists. `doctor`'s `apiKeys=[brave=no key]` is how you
+  check that without spending anything; probing the endpoint without a
+  credential is also free (Brave answers 422 with
+  `header.x-subscription-token: Field required`).
 
 ## Operational Notes
 

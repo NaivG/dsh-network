@@ -49,6 +49,7 @@ import {
   buildSearxngUrl,
   normalizeSearxngEndpoint,
 } from '../src/engines/searxng.ts'
+import { BRAVE_API_KEY_ENV, BraveSearchEngine, buildBraveUrl } from '../src/engines/brave.ts'
 import { defaultRegistry, registerDefaultEngines } from '../src/engines/index.ts'
 import {
   WEB_SITEMAP,
@@ -437,7 +438,7 @@ describe('GitHubSearchEngine', () => {
   it('is registered in the default registry as chain tail', () => {
     registerDefaultEngines(defaultRegistry)
     const all = defaultRegistry.all().map((e) => e.id)
-    expect(all).toEqual(['bing', 'duckduckgo', 'baidu', 'github', 'searxng'])
+    expect(all).toEqual(['bing', 'duckduckgo', 'baidu', 'github', 'searxng', 'brave'])
   })
 })
 
@@ -576,6 +577,270 @@ describe('SearxngSearchEngine', () => {
       results: [{ url: 'https://a.example/1', title: 'T', content: 'S' }],
     })
     const items = new SearxngSearchEngine().parse(body, 10)
+    expect(items.length).toBe(1)
+    expect(items[0]?.snippet).toBe('S')
+  })
+})
+
+// ─────────────────────────── brave engine ──────────────────────────
+describe('BraveSearchEngine', () => {
+  // The engine reads DSH_NETWORK_ENGINE_OPTIONS per request; pin it so the
+  // suite never depends on the caller's environment.
+  const savedOptions = process.env.DSH_NETWORK_ENGINE_OPTIONS
+  const savedKey = process.env[BRAVE_API_KEY_ENV]
+  beforeAll(() => {
+    delete process.env.DSH_NETWORK_ENGINE_OPTIONS
+    delete process.env[BRAVE_API_KEY_ENV]
+  })
+  afterAll(() => {
+    if (savedOptions === undefined) delete process.env.DSH_NETWORK_ENGINE_OPTIONS
+    else process.env.DSH_NETWORK_ENGINE_OPTIONS = savedOptions
+    if (savedKey === undefined) delete process.env[BRAVE_API_KEY_ENV]
+    else process.env[BRAVE_API_KEY_ENV] = savedKey
+  })
+
+  it('pins the API endpoint and declares the credential header', () => {
+    const engine = new BraveSearchEngine()
+    expect(engine.endpoint).toBe('https://api.search.brave.com/res/v1/web/search')
+    expect(engine.displayName).toBe('Brave Search')
+    // The auth block is what the CLI injects from — a wrong header name here
+    // would make every keyed call 401 with no other symptom.
+    expect(engine.auth?.header).toBe('X-Subscription-Token')
+    expect(engine.auth?.scheme).toBe('raw')
+    expect(engine.auth?.apiKeyEnv).toBe(BRAVE_API_KEY_ENV)
+  })
+
+  it('builds the documented default query (count + extra_snippets)', () => {
+    expect(buildBraveUrl('rust vs go', { max: 10 })).toBe(
+      'https://api.search.brave.com/res/v1/web/search?q=rust%20vs%20go&count=10&extra_snippets=true',
+    )
+  })
+
+  it('clamps count to Brave’s 20 cap and the offset to 0-9', () => {
+    expect(buildBraveUrl('q', { max: 99 })).toContain('count=20')
+    expect(buildBraveUrl('q', { max: 0 })).toContain('count=1')
+    expect(buildBraveUrl('q', { max: 10, offset: 9 })).toContain('offset=9')
+    expect(buildBraveUrl('q', { max: 10, offset: 10 })).not.toContain('offset=')
+    expect(buildBraveUrl('q', { max: 10, offset: 0 })).not.toContain('offset=')
+  })
+
+  it('prefers the call’s perPage over the standalone max', () => {
+    // The CLI always passes the call's result cap as `perPage`; `max` is the
+    // standalone spelling. Server-provided wins so a per-call count argument
+    // is honored, and a missing/odd perPage falls back to `max`.
+    expect(buildBraveUrl('q', { perPage: 3, max: 10 })).toContain('count=3')
+    expect(buildBraveUrl('q', { max: 7 })).toContain('count=7')
+    expect(buildBraveUrl('q', { perPage: undefined, max: 7 })).toContain('count=7')
+    expect(buildBraveUrl('q', {})).toContain('count=20')
+  })
+
+  it('passes through only the documented option vocabulary', () => {
+    const url = buildBraveUrl('vue 3', {
+      max: 5,
+      country: 'de',
+      searchLang: 'de',
+      uiLang: 'de-DE',
+      freshness: 'pw',
+      safesearch: 'strict',
+      goggles: 'https://goggles.example/rank.json',
+    })
+    expect(url).toBe(
+      'https://api.search.brave.com/res/v1/web/search?q=vue%203&count=5&extra_snippets=true' +
+        '&country=DE&search_lang=de&ui_lang=de-DE&freshness=pw&safesearch=strict' +
+        '&goggles=https%3A%2F%2Fgoggles.example%2Frank.json',
+    )
+    const minimal = buildBraveUrl('q', {
+      max: 10,
+      country: 'DEU', // not a 2-letter code → dropped
+      freshness: 'all', // not pd|pw|pm|py nor a range → dropped
+      safesearch: 'maybe', // not off|moderate|strict → dropped
+      goggles: 'not a url', // dropped rather than sent as free text
+      junk: 'x', // unknown → dropped
+    })
+    expect(minimal).toBe('https://api.search.brave.com/res/v1/web/search?q=q&count=10&extra_snippets=true')
+    // A custom date range is a documented freshness value.
+    expect(buildBraveUrl('q', { max: 10, freshness: '2024-01-01to2024-06-30' })).toContain(
+      'freshness=2024-01-01to2024-06-30',
+    )
+  })
+
+  it('reads per-engine options out of DSH_NETWORK_ENGINE_OPTIONS', () => {
+    process.env.DSH_NETWORK_ENGINE_OPTIONS = JSON.stringify({ brave: { country: 'JP' }, other: { x: 'y' } })
+    try {
+      const [req] = new BraveSearchEngine().buildRequests('q', { perPage: 3 })
+      expect(req?.key).toBe('brave')
+      expect(req?.url).toContain('country=JP')
+      // The call's result cap wins over the engine default.
+      expect(req?.url).toContain('count=3')
+      // A single-engine env var of a DIFFERENT engine must not leak in.
+      expect(req?.url).not.toContain('x=y')
+    } finally {
+      delete process.env.DSH_NETWORK_ENGINE_OPTIONS
+    }
+  })
+
+  it('parseMany: maps web.results, keeps page_age, merges one extra snippet', () => {
+    const body = JSON.stringify({
+      query: { original: 'x', more_results_available: false },
+      web: {
+        results: [
+          {
+            title: 'Rust vs Go',
+            url: 'https://bench.example/rust-go',
+            description: 'Main excerpt.',
+            page_age: '2026-02-01T00:00:00',
+            extra_snippets: ['Second excerpt.', 'Third excerpt.'],
+          },
+          { title: '', url: 'https://no-title.example/x' },
+          { title: 'no url', url: '' },
+        ],
+      },
+    })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 200, headers: {} }], 10)
+    expect(res.items.length).toBe(2)
+    expect(res.items[0]?.title).toBe('Rust vs Go')
+    // Exactly one extra snippet rides along: main text, ellipsis, first extra.
+    expect(res.items[0]?.snippet).toBe('Main excerpt. … Second excerpt.')
+    // page_age lands in published_at — the field the search card renders.
+    expect(res.items[0]?.published_at).toBe('2026-02-01T00:00:00')
+    // A hit with no title falls back to its URL, and the url-less hit is dropped.
+    expect(res.items[1]?.title).toBe('https://no-title.example/x')
+  })
+
+  it('parseMany: drops implausible page_age values instead of showing a wrong date', () => {
+    // Live responses carry broken page_age values: one real query returned
+    // `1970-01-19T20:35:52` for a modern page (an epoch-seconds field read as
+    // ms), and Brave also documents relative shapes. A wrong date in the
+    // evidence is worse than no date, so both are dropped.
+    const body = JSON.stringify({
+      web: {
+        results: [
+          { url: 'https://a.example/epoch', title: 'Epoch garbage', page_age: '1970-01-19T20:35:52' },
+          { url: 'https://b.example/relative', title: 'Relative', page_age: '3 days ago' },
+          { url: 'https://c.example/future', title: 'Far future', page_age: '2999-01-01T00:00:00' },
+          { url: 'https://d.example/ok', title: 'Fine', page_age: '2026-09-12T19:05:25' },
+          { url: 'https://e.example/none', title: 'No date' },
+        ],
+      },
+    })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 200, headers: {} }], 10)
+    expect(res.items.map((i) => i.published_at)).toEqual([undefined, undefined, undefined, '2026-09-12T19:05:25', undefined])
+  })
+
+  it('parseMany: caps at max', () => {
+    const results = Array.from({ length: 5 }, (_, i) => ({ url: `https://e.example/${i}`, title: `T${i}` }))
+    const body = JSON.stringify({ web: { results } })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 200, headers: {} }], 2)
+    expect(res.items.length).toBe(2)
+  })
+
+  it('parseMany: an empty web.results page is zero hits, not an error', () => {
+    const res = new BraveSearchEngine().parseMany(
+      [{ key: 'brave', body: JSON.stringify({ web: { results: [] } }), status: 200, headers: {} }],
+      10,
+    )
+    expect(res.items).toEqual([])
+    expect(res.warnings).toBeUndefined()
+  })
+
+  it('parseMany: more_results_available surfaces as uncertainty at the cap', () => {
+    const results = Array.from({ length: 2 }, (_, i) => ({ url: `https://e.example/${i}`, title: `T${i}` }))
+    const body = JSON.stringify({ query: { more_results_available: true }, web: { results } })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 200, headers: {} }], 2)
+    expect(res.uncertainty?.[0]).toContain('more results are available')
+  })
+
+  it('parseMany: synthetic 401 (no key) names the fix', () => {
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body: '', status: 401, headers: {} }], 10)
+    expect(res.items).toEqual([])
+    expect(res.warnings?.[0]).toContain('authentication failed')
+    expect(res.warnings?.[0]).toContain('DSH_NETWORK_BRAVE_API_KEY')
+  })
+
+  it('parseMany: 429 / 422 / non-JSON bodies become actionable warnings', () => {
+    const engine = new BraveSearchEngine()
+    const rate = engine.parseMany(
+      [
+        {
+          key: 'brave',
+          body: JSON.stringify({ error: { code: 'RATE_LIMITED', message: 'quota exceeded' } }),
+          status: 429,
+          headers: {},
+        },
+      ],
+      10,
+    )
+    expect(rate.warnings?.[0]).toContain('rate limited')
+    expect(rate.warnings?.[0]).toContain('quota exceeded')
+
+    const rejected = engine.parseMany([{ key: 'brave', body: '', status: 422, headers: {} }], 10)
+    expect(rejected.warnings?.[0]).toContain('query rejected (422)')
+
+    const html = engine.parseMany([{ key: 'brave', body: '<html>502</html>', status: 502, headers: {} }], 10)
+    expect(html.warnings?.[0]).toContain('unexpected HTTP 502')
+
+    const garbage = engine.parseMany([{ key: 'brave', body: '<html></html>', status: 200, headers: {} }], 10)
+    expect(garbage.warnings?.[0]).toContain('was not JSON')
+
+    const foreign = engine.parseMany(
+      [{ key: 'brave', body: JSON.stringify({ results: [] }), status: 200, headers: {} }],
+      10,
+    )
+    expect(foreign.warnings?.[0]).toContain('no `web.results`')
+  })
+
+  it('parseMany: a 422 about the credential is reported as auth, not as a bad query', () => {
+    // The live API answers 422 (not 401) when `x-subscription-token` is
+    // missing, with the field name inside error.meta.errors[].loc. Reporting
+    // that as "check your query" would send the user down the wrong path.
+    const body = JSON.stringify({
+      error: {
+        code: 'VALIDATION',
+        detail: 'Unable to validate request parameter(s)',
+        meta: {
+          errors: [
+            { input: null, loc: ['header', 'x-subscription-token'], msg: 'Field required', type: 'missing' },
+          ],
+        },
+        status: 422,
+      },
+      type: 'ErrorResponse',
+    })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 422, headers: {} }], 10)
+    expect(res.items).toEqual([])
+    expect(res.warnings?.[0]).toContain('authentication failed')
+    // The actionable half of the error body survives into the warning.
+    expect(res.warnings?.[0]).toContain('header.x-subscription-token: Field required')
+
+    // A BOGUS key is also a 422, with a different message (captured live):
+    // { "error": { "detail": "The provided API key is invalid.", "status": 422 } }
+    const bogus = JSON.stringify({
+      error: { code: 'VALIDATION', detail: 'The provided API key is invalid.', status: 422 },
+      type: 'ErrorResponse',
+    })
+    const bad = new BraveSearchEngine().parseMany([{ key: 'brave', body: bogus, status: 422, headers: {} }], 10)
+    expect(bad.warnings?.[0]).toContain('authentication failed')
+    expect(bad.warnings?.[0]).toContain('The provided API key is invalid.')
+  })
+
+  it('parseMany: a 422 about the query keeps the query advice', () => {
+    const body = JSON.stringify({ error: { detail: 'Invalid value for parameter q', status: 422 } })
+    const res = new BraveSearchEngine().parseMany([{ key: 'brave', body, status: 422, headers: {} }], 10)
+    expect(res.warnings?.[0]).toContain('query rejected (422 ')
+    expect(res.warnings?.[0]).toContain('Invalid value for parameter q')
+  })
+
+  it('parseMany: transport failure lands in warnings', () => {
+    const res = new BraveSearchEngine().parseMany(
+      [{ key: 'brave', body: '', status: 0, error: 'getaddrinfo ENOTFOUND api.search.brave.com' }],
+      10,
+    )
+    expect(res.warnings?.[0]).toContain('ENOTFOUND')
+  })
+
+  it('parse: single-body compatibility path', () => {
+    const body = JSON.stringify({ web: { results: [{ url: 'https://a.example/1', title: 'T', description: 'S' }] } })
+    const items = new BraveSearchEngine().parse(body, 10)
     expect(items.length).toBe(1)
     expect(items[0]?.snippet).toBe('S')
   })

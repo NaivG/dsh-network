@@ -158,6 +158,27 @@ UI edits persist to `~/.dsh/dsh-network.json` (atomic write; `DSH_NETWORK_CONFIG
 
 Add `searxng` to `searchEngines` and set its endpoint in the UI or via `DSH_NETWORK_SEARXNG_URL` (default `http://127.0.0.1:8888`). The instance must enable `json` in `search.formats`.
 
+### Brave Search API (keyed, opt-in, billed)
+
+The first engine that authenticates with an API key. It is never part of the default chain: Brave removed its free tier in Feb 2026, so every query costs money. Opt in by adding `brave` to `searchEngines` (or pin it per call with `web_search`'s `engine: "brave"`).
+
+1. Open **设置 → 网络 → 引擎**, pick **Brave Search** from the add-engine list.
+2. Paste the subscription token into the dialog's **API Key** field. It is write-only: the host stores it in `~/.dsh/dsh-network.json` and the browser only ever reads back `hasApiKey`.
+3. Optional per-engine parameters, one `key=value` per line in the same dialog:
+
+| option | values | effect |
+| --- | --- | --- |
+| `country` | `DE`, `US`, … | two-letter country targeting |
+| `searchLang` / `uiLang` | `de`, `de-DE` | content language / response metadata language |
+| `freshness` | `pd` `pw` `pm` `py` or `2024-01-01to2024-06-30` | recency filter |
+| `safesearch` | `off` `moderate` `strict` | adult-content filter |
+| `goggles` | an `http(s)` URL | custom re-ranking |
+| `offset` | `0`-`9` | result paging |
+
+Anything outside that vocabulary is dropped before the request is built, so a typo cannot burn a billed call on a 422. `count` is taken from the call's result cap (max 20), `extra_snippets=true` is always on, and `page_age` is surfaced as the hit's date.
+
+How the key travels (and why it only travels one way): `configToEnv()` packs `searchEngineApiKeys` into the per-invoke `DSH_NETWORK_SEARCH_ENGINE_API_KEYS` env snapshot on the loopback `/invoke` body; the CLI resolves the engine's credential and injects the header the engine's `auth` block declares (`X-Subscription-Token` for Brave, `Bearer` for GitHub). Engines only ever see `hasApiKey`. With no key, no request is sent at all — the engine reports the missing credential instead.
+
 ## Safety
 
 - All traffic goes through `undici`. The plugin never calls `curl.exe` or `nslookup.exe`.

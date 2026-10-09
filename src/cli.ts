@@ -366,9 +366,14 @@ function helpText(): string {
     'Server options (server subcommand):',
     '  --port            int        Loopback port to listen on (default: ephemeral, printed on stdout)',
     '',
-    'Engine choices for search: bing, duckduckgo, baidu, github, searxng. Default chain is the order given above.',
+    'Engine choices for search: bing, duckduckgo, baidu, github, searxng, brave. Default chain is the order given above.',
     'GitHub engine: hybrid REST search (repositories/code/issues/users). Code search needs',
     '  DSH_NETWORK_GITHUB_TOKEN; anonymous search is limited to 10 req/min per IP.',
+    'Brave engine: keyed Search API (billed per query — no free tier). The key comes from the',
+    '  host-injected DSH_NETWORK_SEARCH_ENGINE_API_KEYS map, or DSH_NETWORK_BRAVE_API_KEY for a',
+    '  standalone run. Its `options` map (settings UI) accepts country, searchLang, uiLang,',
+    '  freshness (pd|pw|pm|py or 2024-01-01to2024-06-30), safesearch (off|moderate|strict),',
+    '  goggles (an http(s) URL), and offset (0-9). Without a key no request is sent.',
     'SearXNG engine: self-hosted metasearch JSON API (docs.searxng.org/dev/search_api.html). Endpoint:',
     '  DSH_NETWORK_SEARXNG_URL, default http://127.0.0.1:8888 (loopback/private endpoints are reached',
     '  automatically for this engine only — SSRF guards stay on for everything else). The instance must',
@@ -390,10 +395,25 @@ interface ParsedConfig {
   allowlist: string[]
   /** Optional GitHub token; enables the code index and raises search quota. */
   githubToken: string
-  /** Explicit GitHub index selection (empty = automatic intent routing). */
+  /**
+   * Explicit GitHub index selection (empty = automatic intent routing).
+   */
   githubIndexes: string[]
   /** GitHub repositories sort: '' (best match) | 'stars' | 'updated'. */
   githubSort: string
+  /**
+   * Per-engine API keys (`{ brave: '…', … }`), resolved from the host's
+   * per-invoke env snapshot. The key stays on the CLI side: engines receive
+   * only `hasApiKey`, and the CLI is what injects the auth header each
+   * engine's `auth` block declares.
+   */
+  searchEngineApiKeys: Record<string, string>
+  /**
+   * Raw per-engine options (`{ brave: { country: 'DE' } }`) from the
+   * settings UI's free-form textarea. Passed through to the engines, which
+   * validate their own fields.
+   */
+  engineOptions: Record<string, unknown>
 }
 
 function readEnvInt(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -414,6 +434,82 @@ function readEnvList(env: NodeJS.ProcessEnv, name: string): string[] {
     .split(',')
     .map((s) => s.trim().toLowerCase())
     .filter((s) => s.length > 0)
+}
+
+/**
+ * Parse a JSON object out of an env var, degrading to `{}` for anything
+ * unset / malformed / not an object. Shared by the two maps the host
+ * injects per invoke (engine API keys, engine options) so a bad snapshot
+ * can never take a search down.
+ */
+function readEnvObject(env: NodeJS.ProcessEnv, name: string): Record<string, unknown> {
+  const raw = env[name]
+  if (typeof raw !== 'string' || raw.trim() === '') return {}
+  try {
+    const parsed = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>
+    }
+  } catch {
+    /* degrade to empty */
+  }
+  return {}
+}
+
+/** API keys map, filtered down to non-empty string values. */
+function readEnvApiKeys(env: NodeJS.ProcessEnv): Record<string, string> {
+  const raw = readEnvObject(env, 'DSH_NETWORK_SEARCH_ENGINE_API_KEYS')
+  const out: Record<string, string> = {}
+  for (const [id, value] of Object.entries(raw)) {
+    if (typeof value === 'string' && value.trim() !== '') out[id] = value.trim()
+  }
+  return out
+}
+
+/**
+ * Resolve one keyed engine's credential.
+ *
+ * Order matters: the host's per-invoke keys map wins (it mirrors what the
+ * settings UI holds), then the engine's own single-engine env var — which
+ * is what makes a standalone `dsh-network search --engine brave` work when
+ * the environment carries only that one secret. GitHub's long-standing
+ * `DSH_NETWORK_GITHUB_TOKEN` joins the chain so the token that predates the
+ * generic keys map keeps working.
+ */
+function resolveEngineApiKey(
+  engine: SearchEngine,
+  config: ParsedConfig,
+  env: NodeJS.ProcessEnv,
+): string {
+  const mapped = config.searchEngineApiKeys[engine.id]
+  if (typeof mapped === 'string' && mapped !== '') return mapped
+  const authEnv = engine.auth?.apiKeyEnv
+  if (authEnv) {
+    const direct = env[authEnv]
+    if (typeof direct === 'string' && direct.trim() !== '') return direct.trim()
+  }
+  if (engine.id === 'github') {
+    const legacy = env.DSH_NETWORK_GITHUB_TOKEN
+    if (typeof legacy === 'string' && legacy.trim() !== '') return legacy.trim()
+  }
+  return ''
+}
+
+/**
+ * The credential header for one keyed engine, according to the engine's own
+ * `auth` declaration. Returns an empty object for keyless engines (every
+ * HTML scraper) and for a keyed engine with no key — the caller never gets
+ * that far in the latter case: `requiresToken` short-circuits the request.
+ */
+function authHeadersFor(
+  engine: SearchEngine,
+  config: ParsedConfig,
+  env: NodeJS.ProcessEnv,
+): Record<string, string> {
+  if (!engine.auth) return {}
+  const key = resolveEngineApiKey(engine, config, env)
+  if (key === '') return {}
+  return { [engine.auth.header]: engine.auth.scheme === 'bearer' ? `Bearer ${key}` : key }
 }
 
 /**
@@ -444,6 +540,8 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): ParsedConfig {
     githubIndexes: readEnvList(env, 'DSH_NETWORK_GITHUB_INDEXES'),
     githubSort: readEnvString(env, 'DSH_NETWORK_GITHUB_SORT', ''),
     allowlist: readEnvList(env, 'DSH_NETWORK_ALLOWLIST'),
+    searchEngineApiKeys: readEnvApiKeys(env),
+    engineOptions: readEnvObject(env, 'DSH_NETWORK_ENGINE_OPTIONS'),
   }
 }
 
@@ -472,7 +570,7 @@ function engineAllowsPrivate(engine: SearchEngine): boolean {
  * Each engine owns its URL shape and parser; this loop only handles
  * the fetch / telemetry / chain-fallthrough bookkeeping.
  */
-async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchEntry> {
+async function runSearch(flags: CliFlags, config: ParsedConfig, ctx?: RunContext): Promise<SearchEntry> {
   const query = String(flags.query ?? '').trim()
   if (!query) {
     return {
@@ -504,16 +602,33 @@ async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchE
   }
   const chain: readonly SearchEngine[] = override ? [override] : defaultRegistry.resolve(config.searchEngines)
   const attempts: Array<{ engine: string; error?: string }> = []
+  // The CLI is the only holder of a credential: engines are told whether a
+  // key exists (`hasApiKey`), never the key itself.
+  const authEnv = ctx?.env ?? process.env
   for (const engine of chain) {
+    const apiKey = engine.auth ? resolveEngineApiKey(engine, config, authEnv) : ''
+    const hasApiKey = apiKey !== ''
     try {
+      // A keyed engine with no key never reaches the network: the same
+      // synthetic-401 path GitHub has always used for its token-gated code
+      // index keeps the error classification on one code path.
+      const authBlocked = engine.auth !== undefined && !hasApiKey
+      const headers: Record<string, string> = {
+        ...engine.defaultHeaders,
+        ...(hasApiKey ? authHeadersFor(engine, config, authEnv) : {}),
+        ...(config.githubToken !== '' ? { authorization: `Bearer ${config.githubToken}` } : {}),
+        ...(flags.headers ?? {}),
+      }
       // Hybrid engines (e.g. GitHub) fan out into several parallel
       // requests and fuse the bodies themselves; classic engines stay
       // on the single-request path.
       const requests = engine.buildRequests?.(query, {
         hasToken: config.githubToken !== '',
+        hasApiKey,
         perPage: max,
         indexes: config.githubIndexes,
         sort: config.githubSort,
+        engineOptions: config.engineOptions[engine.id],
       })
       if (requests && requests.length > 0 && engine.parseMany) {
         const bodies = await Promise.all(
@@ -521,7 +636,7 @@ async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchE
             // A token-gated request with no token configured never hits
             // the network; the engine classifies the synthetic 401 on
             // the same code path as a real one.
-            if (req.requiresToken && config.githubToken === '') {
+            if ((req.requiresToken && config.githubToken === '') || authBlocked) {
               return { key: req.key, body: '', status: 401, headers: {} }
             }
             try {
@@ -536,13 +651,9 @@ async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchE
                 allowPrivateNetwork: flags.allowPrivate || engineAllowsPrivate(engine),
                 redirectProtection: flags.redirectProtection,
                 protocolLock: flags.protocolLock,
-                headers: {
-                  ...engine.defaultHeaders,
-                  ...(req.headers ?? {}),
-                  // Engine values go in first so caller overrides win.
-                  ...(config.githubToken !== '' ? { authorization: `Bearer ${config.githubToken}` } : {}),
-                  ...(flags.headers ?? {}),
-                },
+                // Engine's profile + credential + caller overrides. Engine
+                // values go in first so caller overrides win.
+                headers: { ...headers, ...(req.headers ?? {}) },
               })
               return { key: req.key, body: fetched.body, status: fetched.status, headers: fetched.headers }
             } catch (error) {
@@ -563,8 +674,20 @@ async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchE
             attempts,
           }
         }
+        // The reason a zero-hit engine produced nothing is the only thing the
+        // caller has to act on (a missing API key, a rate limit, a 403 on a
+        // self-hosted instance). `engine.parseMany` already classified it, so
+        // carry that text into the attempt trail — the generic fallback turns
+        // an actionable "no key" into a useless "no results in bodies".
         const why = [...(result.warnings ?? []), ...(result.uncertainty ?? [])].join('; ')
         attempts.push({ engine: engine.id, error: why || 'no results in bodies' })
+        continue
+      }
+      if (authBlocked) {
+        attempts.push({
+          engine: engine.id,
+          error: `missing API key (${engine.auth?.apiKeyEnv ?? 'engine credential'})`,
+        })
         continue
       }
       const url = engine.buildUrl(query)
@@ -584,7 +707,7 @@ async function runSearch(flags: CliFlags, config: ParsedConfig): Promise<SearchE
         protocolLock: flags.protocolLock,
         // Engine's profile + caller overrides. Engine values go in
         // first so caller overrides win (e.g. user-supplied UA).
-        headers: { ...engine.defaultHeaders, ...(flags.headers ?? {}) },
+        headers: { ...headers, ...(flags.headers ?? {}) },
       })
       const sources = engine.parse(fetched.body, max)
       if (sources.length > 0) {
@@ -1009,15 +1132,23 @@ async function runSitemap(flags: CliFlags): Promise<SitemapEntry> {
   }
 }
 
-async function doctor(config: ParsedConfig): Promise<SearchEntry> {
+async function doctor(config: ParsedConfig, env: NodeJS.ProcessEnv = process.env): Promise<SearchEntry> {
   // No network, no quota: report the resolved config and reachable engines.
   const github = config.githubIndexes.length > 0 ? `indexes=${config.githubIndexes.join(',')}` : 'indexes=auto'
   const searxngUrl = defaultRegistry.get('searxng')?.endpoint ?? 'unset'
+  // Every registered engine that DECLARES a credential: `key` / `no key`
+  // is the difference between a billed call and a synthesized 401, so a
+  // readiness probe has to say it out loud.
+  const keyed = defaultRegistry
+    .all()
+    .filter((e) => e.auth !== undefined)
+    .map((e) => `${e.id}=${resolveEngineApiKey(e, config, env) !== '' ? 'key' : 'no key'}`)
+    .join(' ')
   return {
     kind: 'search',
     engine: 'doctor',
     status: 'ok',
-    summary: `engines=${config.searchEngines.join(',')} fetchTimeoutMs=${config.fetchTimeoutMs} httpTimeoutMs=${config.httpTimeoutMs} allowlist=${config.allowlist.length} githubToken=${config.githubToken !== '' ? 'set' : 'unset'} github${github}${config.githubSort ? ` sort=${config.githubSort}` : ''} searxngUrl=${searxngUrl} sitemap=${WEB_SITEMAP.length}`,
+    summary: `engines=${config.searchEngines.join(',')} fetchTimeoutMs=${config.fetchTimeoutMs} httpTimeoutMs=${config.httpTimeoutMs} allowlist=${config.allowlist.length} githubToken=${config.githubToken !== '' ? 'set' : 'unset'} github${github}${config.githubSort ? ` sort=${config.githubSort}` : ''} searxngUrl=${searxngUrl} apiKeys=[${keyed}] sitemap=${WEB_SITEMAP.length}`,
     items: [],
     uncertainty: [],
     warnings: [],
@@ -1045,11 +1176,11 @@ export async function runOnce(argv: string[], ctx?: RunContext): Promise<Envelop
   }
   const config = loadConfig(ctx?.env ?? process.env)
   let entry: Entry
-  if (flags.mode === 'search') entry = await runSearch(flags, config)
+  if (flags.mode === 'search') entry = await runSearch(flags, config, ctx)
   else if (flags.mode === 'fetch') entry = await runFetch_(flags, config, ctx?.cache)
   else if (flags.mode === 'http') entry = await runHttp(flags, config, ctx?.cache)
   else if (flags.mode === 'sitemap') entry = await runSitemap(flags)
-  else if (flags.mode === 'doctor') entry = await doctor(config)
+  else if (flags.mode === 'doctor') entry = await doctor(config, ctx?.env ?? process.env)
   else entry = await runFetch_(flags, config, ctx?.cache)
 
   return {
