@@ -185,7 +185,7 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'so.com', description: '360 搜索（中文备选）', category: 'search', priority: 6, searchUrl: `https://www.so.com/s?q={query}`, region: 'CN', tags: ['search', '360', '中文'] },
   { domain: 'ecosia.org', description: '植树公益搜索', category: 'search', priority: 5, searchUrl: `https://www.ecosia.org/search?q={query}`, tags: ['search', 'eco', '公益'] },
   { domain: 'yahoo.com', description: '雅虎搜索（英文资源 preferred）', category: 'search', priority: 4, searchUrl: `https://search.yahoo.com/search?p={query}`, tags: ['search', 'yahoo', '英文'] },
-  
+
   // ── encyclopedia ──
   { domain: 'wikipedia.org', description: '维基百科（多语言通用百科）', category: 'encyclopedia', priority: 10, searchUrl: `https://en.wikipedia.org/wiki/Special:Search?search={query}`, language: 'multi', tags: ['wiki', 'encyclopedia', '百科', 'wikipedia'] },
   { domain: 'zh.wikipedia.org', description: '中文维基百科', category: 'encyclopedia', priority: 9, searchUrl: `https://zh.wikipedia.org/wiki/Special:Search?search={query}`, language: 'zh', region: 'CN', tags: ['wiki', '百科', 'wikipedia zh'] },
@@ -193,6 +193,8 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'wiki.ubuntu.com', description: 'Ubuntu 官方 Wiki', category: 'encyclopedia', priority: 7, searchUrl: `https://wiki.ubuntu.com/?action=fullsearch&text={query}`, tags: ['ubuntu', 'linux', 'wiki'] },
   { domain: 'wiki.gentoo.org', description: 'Gentoo Wiki', category: 'encyclopedia', priority: 6, searchUrl: `https://wiki.gentoo.org/index.php?search={query}`, tags: ['gentoo', 'linux', 'wiki'] },
   { domain: 'wiki.debian.org', description: 'Debian Wiki', category: 'encyclopedia', priority: 5, searchUrl: `https://wiki.debian.org/FrontPage?action=fullsearch&value={query}`, tags: ['debian', 'linux', 'wiki'] },
+  { domain: 'minecraft.wiki', description: 'Minecraft 官方 Wiki', category: 'encyclopedia', priority: 6, tags: ['minecraft', 'game', 'wiki'] },
+  { domain: 'minecraft.fandom.com', description: 'Minecraft fandom Wiki', category: 'encyclopedia', priority: 6, searchUrl: `https://minecraft.fandom.com/wiki/Special:Search?query={query}`, tags: ['minecraft', 'game', 'wiki', 'fandom'] },
 
   // ── code-repos ──
   { domain: 'github.com', description: 'Git 代码托管与协作平台（仓库 / Issue / PR / Actions）', category: 'code-repos', priority: 10, searchUrl: `https://github.com/search?q={query}&type=repositories`, language: 'multi', tags: ['git', 'github', '代码托管', '开源', 'open source', 'repo'], pathHints: [`/{owner}/{repo}`, `/{owner}/{repo}/blob/{branch}/{path}`, `/{owner}/{repo}/issues`, `/{owner}`] },
@@ -240,6 +242,9 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'api.flutter.dev', description: 'Flutter API 文档', category: 'docs', priority: 9, searchUrl: `https://api.flutter.dev/search?q={query}`, tags: ['flutter', 'dart'] },
   { domain: 'doc.openvela.com', description: 'OpenVela 官方文档', category: 'docs', priority: 8, searchUrl: `https://doc.openvela.com/search?keywords={query}`, tags: ['openvela', 'vela'] },
   { domain: 'iot.mi.com', description: '小米 IoT 开发者平台', category: 'docs', priority: 8, tags: ['vela', 'iot', '快应用', 'xiaomi'] },
+  { domain: 'doc.qt.io', description: 'Qt 官方文档', category: 'docs', priority: 7, tags: ['qt', 'c++'] },
+  { domain: 'docs.docker.com', description: 'Docker 官方文档', category: 'docs', priority: 7, tags: ['docker', 'container'] },
+  { domain: 'docs.nvidia.com', description: 'NVIDIA 官方开发文档', category: 'docs', priority: 7, searchUrl: `https://docs.nvidia.com/search/index.html?q={query}`, tags: ['nvidia', 'gpu', 'cuda'] },
 
   // ── manuals (product / vendor docs) ──
   { domain: 'docs.aws.amazon.com', description: 'AWS 官方文档', category: 'manuals', priority: 9, searchUrl: `https://docs.aws.amazon.com/search/doc-search.html?searchPath=documentation&searchQuery={query}`, tags: ['aws', 'amazon', 'cloud'], pathHints: [`/{service}/latest/{path}`] },
@@ -262,6 +267,9 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'tc39.es', description: 'TC39 ECMAScript 提案', category: 'standards', priority: 7, tags: ['tc39', 'ecmascript', 'javascript'] },
   { domain: 'unicode.org', description: 'Unicode 标准', category: 'standards', priority: 7, searchUrl: `https://www.unicode.org/search/?q={query}`, tags: ['unicode', 'utf-8', '字符集'] },
   { domain: 'ecma-international.org', description: 'Ecma 国际标准（ECMAScript 等）', category: 'standards', priority: 6, tags: ['ecma', 'ecmascript'] },
+  { domain: 'spec.openapis.org', description: 'OpenAPI 规范', category: 'standards', priority: 7, tags: ['openapi', 'api', 'spec'] },
+  { domain: 'json-schema.org', description: 'JSON Schema 规范', category: 'standards', priority: 7, tags: ['json schema', 'json', 'api', 'spec'] },
+  { domain: 'graphql.org', description: 'GraphQL 规范', category: 'standards', priority: 6, tags: ['graphql', 'api', 'spec'] },
 
   // ── news (wire / general) ──
   { domain: 'reuters.com', description: '路透社国际新闻', category: 'news', priority: 8, searchUrl: `https://www.reuters.com/search/?query={query}`, language: 'en', tags: ['news', 'reuters', '路透', '国际新闻'] },
@@ -281,9 +289,11 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'ithome.com', description: 'IT之家 中文 IT 新闻', category: 'tech-news', priority: 6, searchUrl: `https://www.ithome.com/search/?q={query}`, region: 'CN', tags: ['tech news', 'ithome', 'IT之家', '中文'] },
 
   // ── academic ──
-  { domain: 'arxiv.org', description: 'arXiv 预印本（CS / 物理 / 数学）', category: 'academic', priority: 10, searchUrl: `https://arxiv.org/search/?query={query}&searchtype=all`, language: 'en', tags: ['arxiv', 'preprint', '论文', 'preprint'], pathHints: [`/abs/{id}`, `/pdf/{id}`] },
+  { domain: 'arxiv.org', description: 'arXiv 预印本（CS / 物理 / 数学）', category: 'academic', priority: 10, searchUrl: `https://arxiv.org/search/?query={query}&searchtype=all`, language: 'en', tags: ['arxiv', 'preprint', '论文'], pathHints: [`/abs/{id}`, `/pdf/{id}`] },
   { domain: 'scholar.google.com', description: '谷歌学术', category: 'academic', priority: 9, searchUrl: `https://scholar.google.com/scholar?q={query}`, language: 'en', tags: ['scholar', '学术', '谷歌学术'] },
   { domain: 'semanticscholar.org', description: 'Semantic Scholar 学术搜索', category: 'academic', priority: 8, searchUrl: `https://www.semanticscholar.org/search?q={query}`, language: 'en', tags: ['semantic scholar', '学术'] },
+  { domain: 'cnki.net', description: '中国知网（CNKI）学术搜索', category: 'academic', priority: 8, searchUrl: `https://kns.cnki.net/kns8s/defaultresult/index?kw={query}`, region: 'CN', tags: ['cnki', '知网', '学术'] },
+  { domain: 'wanfangdata.com.cn', description: '万方数据学术搜索', category: 'academic', priority: 7, searchUrl: `https://s.wanfangdata.com.cn/paper?q={query}`, region: 'CN', tags: ['wanfang', '万方', '学术'] },
   { domain: 'pubmed.ncbi.nlm.nih.gov', description: 'PubMed 生物医学文献', category: 'academic', priority: 8, searchUrl: `https://pubmed.ncbi.nlm.nih.gov/?term={query}`, language: 'en', tags: ['pubmed', '生物医学', '医学'] },
   { domain: 'dl.acm.org', description: 'ACM 数字图书馆', category: 'academic', priority: 7, searchUrl: `https://dl.acm.org/search?q={query}`, language: 'en', tags: ['acm', '论文', 'cs'] },
   { domain: 'ieeexplore.ieee.org', description: 'IEEE Xplore', category: 'academic', priority: 7, searchUrl: `https://ieeexplore.ieee.org/search/searchresult.jsp?queryText={query}`, language: 'en', tags: ['ieee', '论文', '电气工程'] },
@@ -291,6 +301,9 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'sciencedirect.com', description: 'ScienceDirect（Elsevier 期刊）', category: 'academic', priority: 6, searchUrl: `https://www.sciencedirect.com/search?qs={query}`, language: 'en', tags: ['sciencedirect', 'elsevier', '论文'] },
   { domain: 'springer.com', description: 'Springer 期刊', category: 'academic', priority: 6, searchUrl: `https://link.springer.com/search?q={query}`, language: 'en', tags: ['springer', '论文'] },
   { domain: 'shitjournal.org', description: 'S.H.*.T 期刊', category: 'academic', priority: 6, searchUrl: `https://shitjournal.org/search?q={query}`, language: 'zh', tags: ['shitjournal', 'shit', 'S.H.*.T', '中文', 'bullshit'] },
+  { domain: 'doi.org', description: 'DOI 文献索引', category: 'academic', priority: 6, language: 'en', tags: ['doi', '文献'] },
+  { domain: 'crossref.org', description: 'CrossRef 文献索引', category: 'academic', priority: 6, searchUrl: `https://search.crossref.org/?from_ui=&q={query}`, language: 'en', tags: ['crossref', '文献', 'index'] },
+  { domain: 'openalex.org', description: 'OpenAlex 开放学术索引', category: 'academic', priority: 6, searchUrl: `https://openalex.org/works?search.title_abstract_keywords={query}`, language: 'en', tags: ['openalex', '学术', 'index'] },
 
   // ── ai-platforms ──
   { domain: 'openai.com', description: 'OpenAI 官方（GPT / DALL·E / Sora）', category: 'ai-platforms', priority: 9, language: 'en', tags: ['openai', 'gpt', 'llm', 'ai'], pathHints: ['/index/{model}'] },
@@ -299,12 +312,12 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'docs.anthropic.com', description: 'Anthropic Claude API 文档', category: 'ai-platforms', priority: 9, searchUrl: `https://docs.anthropic.com/en/search?q={query}`, language: 'en', tags: ['anthropic', 'claude', 'api docs'] },
   { domain: 'deepseek.com', description: 'DeepSeek 官方', category: 'ai-platforms', priority: 8, region: 'CN', tags: ['deepseek', 'llm', '深度求索', 'ai'] },
   { domain: 'api-docs.deepseek.com', description: 'DeepSeek API 文档', category: 'ai-platforms', priority: 8, searchUrl: `https://api-docs.deepseek.com/web/?q={query}`, region: 'CN', tags: ['deepseek', 'api docs'] },
-  { domain: 'www.kimi.com', description: 'Kimi 官方', category: 'ai-platforms', priority: 8, language: 'en', tags: ['kimi', 'llm', 'ai'] },
-  { domain: 'www.qianwen.com', description: '千问 官方', category: 'ai-platforms', priority: 8, language: 'zh', tags: ['qianwen', 'llm', 'ai'] },
+  { domain: 'kimi.com', description: 'Kimi 官方', category: 'ai-platforms', priority: 8, language: 'en', tags: ['kimi', 'llm', 'ai'] },
+  { domain: 'qianwen.com', description: '千问 官方', category: 'ai-platforms', priority: 8, language: 'zh', tags: ['qianwen', 'llm', 'ai'] },
   { domain: 'z.ai', description: 'Z.AI 智谱官方', category: 'ai-platforms', priority: 8, language: 'zh', tags: ['glm', 'llm', 'ai'] },
   { domain: 'minimax.cn', description: 'Minimax 官方', category: 'ai-platforms', priority: 8, language: 'zh', tags: ['minimax', 'llm', 'ai'] },
-  { domain: 'www.minimax.io', description: 'Minimax 海外站', category: 'ai-platforms', priority: 7, language: 'en', tags: ['minimax', 'llm', 'ai'] },
-  { domain: 'www.doubao.com', description: '豆包 官方', category: 'ai-platforms', priority: 7, region: 'CN', tags: ['doubao', 'llm', 'ai'] },
+  { domain: 'minimax.io', description: 'Minimax 海外站', category: 'ai-platforms', priority: 7, language: 'en', tags: ['minimax', 'llm', 'ai'] },
+  { domain: 'doubao.com', description: '豆包 官方', category: 'ai-platforms', priority: 7, region: 'CN', tags: ['doubao', 'llm', 'ai'] },
   { domain: 'huggingface.co', description: 'Hugging Face 模型 / 数据集 / Spaces', category: 'ai-platforms', priority: 10, searchUrl: `https://huggingface.co/models?search={query}`, language: 'multi', tags: ['huggingface', 'hf', '模型', 'datasets'], pathHints: [`/{owner}/{model}`, `/datasets/{owner}/{dataset}`, `/spaces/{owner}/{space}`] },
   { domain: 'hf-mirror.com', description: 'Hugging Face 镜像站', category: 'ai-platforms', priority: 8, searchUrl: `https://hf-mirror.com/models?search={query}`, region: 'CN', tags: ['huggingface', 'hf', '模型', 'datasets'], pathHints: [`/{owner}/{model}`, `/datasets/{owner}/{dataset}`, `/spaces/{owner}/{space}`] },
   { domain: 'modelscope.cn', description: 'ModelScope 模型', category: 'ai-platforms', priority: 8, searchUrl: `https://modelscope.cn/search?q={query}`, region: 'CN', tags: ['modelscope', '模型', '深度学习']},
@@ -358,13 +371,13 @@ export const WEB_SITEMAP: readonly WebSitemapEntry[] = Object.freeze([
   { domain: 'vimeo.com', description: 'Vimeo 视频平台', category: 'video', priority: 6, searchUrl: `https://vimeo.com/search?q={query}`, language: 'en', tags: ['vimeo', '视频'] },
   { domain: 'bilibili.com', description: 'B站中文视频社区', category: 'video', priority: 9, searchUrl: `https://search.bilibili.com/all?keyword={query}`, region: 'CN', tags: ['bilibili', 'b站', '中文', '弹幕'] },
   { domain: 'twitch.tv', description: 'Twitch 直播平台', category: 'video', priority: 6, searchUrl: `https://www.twitch.tv/search?term={query}`, language: 'en', tags: ['twitch', '直播', 'livestream'] },
-  { domain: 'www.acfun.cn', description: 'Acfun 弹幕视频网', category: 'video', priority: 8, region: 'CN', tags: ['acfun', '弹幕', '视频'] },
-  { domain: 'www.douyin.com', description: '抖音短视频社区', category: 'video', priority: 6, region: 'CN', tags: ['抖音', '短视频', '中文'] },
+  { domain: 'acfun.cn', description: 'Acfun 弹幕视频网', category: 'video', priority: 8, region: 'CN', tags: ['acfun', '弹幕', '视频'] },
+  { domain: 'douyin.com', description: '抖音短视频社区', category: 'video', priority: 6, region: 'CN', tags: ['抖音', '短视频', '中文'] },
 
   // ── music ──
   { domain: 'music.163.com', description: '网易云音乐', category: 'music', priority: 7, searchUrl: `https://music.163.com/#/search/m/?s={query}`, region: 'CN', tags: ['网易云', '音乐', '中文'] },
   { domain: 'y.qq.com', description: 'QQ 音乐', category: 'music', priority: 7, searchUrl: `https://y.qq.com/n/ryqq/search?w={query}`, region: 'CN', tags: ['qq音乐', '音乐', '中文'] },
-  { domain: 'www.kugou.com', description: '酷狗音乐', category: 'music', priority: 6, searchUrl: `https://www.kugou.com/yy/html/search.html#searchType=song&searchKeyWord={query}`, region: 'CN', tags: ['酷狗', '音乐', '中文'] },
+  { domain: 'kugou.com', description: '酷狗音乐', category: 'music', priority: 6, searchUrl: `https://www.kugou.com/yy/html/search.html#searchType=song&searchKeyWord={query}`, region: 'CN', tags: ['酷狗', '音乐', '中文'] },
   { domain: 'spotify.com', description: 'Spotify 流媒体音乐', category: 'music', priority: 7, searchUrl: `https://open.spotify.com/search/{query}`, language: 'multi', tags: ['spotify', '音乐'] },
   { domain: 'soundcloud.com', description: 'SoundCloud 音频平台', category: 'music', priority: 6, searchUrl: `https://soundcloud.com/search?q={query}`, language: 'multi', tags: ['soundcloud', '音频'] },
 

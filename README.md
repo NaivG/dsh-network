@@ -26,7 +26,7 @@ page through a server-side cache, so the model reads past the inline cap
 instead of losing the tail. No API key is needed for the default search chain,
 and every opt-in engine stays opt-in.
 
-Works with `dsh: 0.1.0.rc1` or later.
+Works with `dsh: 0.1.0.rc2` or later.
 
 > **Note:** This plugin is not yet published to npm.
 
@@ -72,7 +72,7 @@ stays claimed until you uninstall it.
 | `web_search` | Searches the web through the configured engine chain (default **Bing → DuckDuckGo → Baidu**). Returns citeable sources (title, link, snippet, date), a summary, a status flag, and uncertainty notes. One engine can be pinned per call. |
 | `web_fetch` | Fetches one HTTP(S) URL and returns Markdown by default or the raw body on request, with outgoing links and warnings. PDF, OOXML (`docx`/`pptx`/`xlsx`), ODF (`odt`/`odp`/`ods`), and EPUB responses are converted to clean Markdown instead of binary bytes. |
 | `http_request` | Issues a low-level HTTP(S) request with full method, header, and body control. |
-| `web_sitemap` | Looks up a curated table of **165** authoritative portals — 23 categories spanning arxiv, MDN, package registries, Q&A sites, government, news, video… — by domain, category, priority, or free-text query, optionally returning a paste-able digest. |
+| `web_sitemap` | Looks up a curated table of **178** authoritative portals — 23 categories spanning arxiv, MDN, package registries, Q&A sites, government, news, video… — by domain, category, priority, or free-text query, optionally returning a paste-able digest. |
 | `web_config` | Reads the live dsh-network configuration, or applies a partial patch when you have enabled the safety toggle (see [Settings](#settings)). Full behaviour: [configuration.md](docs/configuration.md#web_config-tool-and-the-safety-toggle). |
 
 ### Tool cards

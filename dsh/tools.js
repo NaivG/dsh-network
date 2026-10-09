@@ -640,7 +640,7 @@ function registerWebSitemapTool(ctx, config) {
   ctx.tools.register({
     name: 'web_sitemap',
     description:
-      'Look up authoritative portals in a curated table of 165 commonly-useful domains (arxiv, MDN, crates.io, Stack Overflow, …). Returns matching entries with category, priority, language/region, and an optional pre-filled search URL when a domain and query are both given. Prefer this before web_search when you already know the topic kind (academic, code repo, package registry, Q&A, encyclopedia, vendor manual, …). If the table returns no useful entry, fall back to web_search.',
+      'Look up authoritative portals in a curated table of 178 commonly-useful domains (arxiv, MDN, crates.io, Stack Overflow, …). Returns matching entries with category, priority, language/region, and an optional pre-filled search URL when a domain and query are both given. Prefer this before web_search when you already know the topic kind (academic, code repo, package registry, Q&A, encyclopedia, vendor manual, …). If the table returns no useful entry, fall back to web_search.',
     parameters: {
       type: 'object',
       additionalProperties: false,
