@@ -1,8 +1,17 @@
 {
   "name": "dsh-network",
+  "author": "NaivG",
   "version": "1.3.0",
   "description": "dsh-native web suite (CLI + host plugin). Let DeepSeek Harness access the internet seamlessly. Designed with the official CSS style in mind.",
   "private": true,
+  "homepage": "https://github.com/NaivG/dsh-network",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NaivG/dsh-network.git"
+  },
+  "bugs": {
+    "url": "https://github.com/NaivG/dsh-network/issues"
+  },
   "license": "MIT",
   "keywords": [
     "dsh",
