@@ -1184,6 +1184,14 @@ window.__ModuleLoader__.load({
             redirectProtection: !!next.redirectProtection,
             protocolLock: !!next.protocolLock,
             allowConfigEdit: !!next.allowConfigEdit,
+            webSearchTool: next.webSearchTool !== false,
+            webFetchTool: next.webFetchTool !== false,
+            httpRequestTool: next.httpRequestTool !== false,
+            webSitemapTool: next.webSitemapTool !== false,
+            webConfigTool: next.webConfigTool !== false,
+            // The one default-OFF toggle: `=== true`, not `!!`, so a draft
+            // that predates the field never grants the file-write opt-in.
+            downloadTool: next.downloadTool === true,
             searchEngines: next.searchEngines,
             searchEngineConfigs: next.searchEngineConfigs,
             httpMethods: next.httpMethods,
@@ -1301,6 +1309,23 @@ window.__ModuleLoader__.load({
             redirectProtection: !!next.redirectProtection,
             protocolLock: !!next.protocolLock,
             allowConfigEdit: !!next.allowConfigEdit,
+            // The six tool toggles (网络 → 工具). They MUST ride this payload:
+            // the save is an explicit whitelist, so a toggle missing here is
+            // dropped before it reaches applyCardSettings() — the switch would
+            // flip in the local draft, the pill would say 已保存, and neither
+            // the live config nor the persist file would ever see it.
+            // Coerced with the SAME polarity the host reads them
+            // (defaultConfig / applyCardSettings), so an absent key on a draft
+            // from an older summary resolves to the documented default instead
+            // of silently disabling a tool that was on.
+            webSearchTool: next.webSearchTool !== false,
+            webFetchTool: next.webFetchTool !== false,
+            httpRequestTool: next.httpRequestTool !== false,
+            webSitemapTool: next.webSitemapTool !== false,
+            webConfigTool: next.webConfigTool !== false,
+            // The one default-OFF toggle: `=== true`, not `!!`, so a draft
+            // that predates the field never grants the file-write opt-in.
+            downloadTool: next.downloadTool === true,
             searchEngines: next.searchEngines,
             searchEngineConfigs: next.searchEngineConfigs,
             httpMethods: next.httpMethods,

@@ -122,6 +122,33 @@ describe('browser-half chunk hygiene', () => {
     // class of split damage as a free variable, without the loud failure.
     expect([...missing].join('\n')).toBe('')
   })
+
+  it('sends every field the host accepts, from BOTH save payloads', () => {
+    // The auto-save builds an EXPLICIT whitelist inside `flushSave` rather than
+    // posting the draft, so a field the UI edits can simply be left out of it.
+    const LEGACY_ALIASES = new Set(['allowPrivateNetwork']) // superseded by ssrfProtection at the same hop
+    const accepted = new Set<string>()
+    for (const match of read('config-summary.js').matchAll(/\bpatch\.(\w+)/g)) {
+      if (!LEGACY_ALIASES.has(match[1])) accepted.add(match[1])
+    }
+    expect(accepted.size).toBeGreaterThan(10)
+
+    const settings = read('client.settings.js')
+    // Keys that reach the payload through `...githubSettingsPatch(next)`.
+    const helper = /function githubSettingsPatch\([\s\S]*?\n {4}\}/.exec(settings)?.[0] ?? ''
+    const helperKeys = new Set([...helper.matchAll(/patch\.(\w+)\s*=/g)].map((m) => m[1]))
+
+    // The dedicated 网络 section AND the legacy Plugins-tab card each carry
+    // their own copy of flushSave — a fix in one left the other broken.
+    const payloads = [...settings.matchAll(/putConfig\(\{([\s\S]*?)\n\s*\}, lastRevision/g)].map((m) => m[1])
+    expect(payloads.length).toBeGreaterThanOrEqual(2)
+    const missing = payloads.flatMap((body, index) => {
+      const sent = new Set([...body.matchAll(/^\s*([A-Za-z_]\w*):/gm)].map((m) => m[1]))
+      for (const key of helperKeys) sent.add(key)
+      return [...accepted].filter((key) => !sent.has(key)).map((key) => `payload #${index} omits "${key}"`)
+    })
+    expect(missing.join('\n')).toBe('')
+  })
 })
 
 // ───────────── 2. dynamic: materialize the real chunks and render ────────────
