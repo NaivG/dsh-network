@@ -26,6 +26,14 @@ window.__ModuleLoader__.load({
     // Shared surface from the entry module (dsh/client.js).
     var shared = require('dsh-network')
     var labelText = shared.labelText
+    // `isRenderable` — NOT a `typeof … === 'function'` test. dsh ships
+    // MarkdownText / TextShimmer through React.memo, so they arrive as memo
+    // objects; the function-only guard this file used to carry always failed
+    // and sent every answer to the raw `<pre>` fallback (literal `###`, raw
+    // `[title](url)`, `&nbsp;`). `markdownLabels` supplies the renderer's
+    // required label seats (see markdownLabels(t) in dsh-client-ui-tool).
+    var isRenderable = shared.isRenderable
+    var markdownLabels = shared.markdownLabels
 
     // The renderers below are wired into `slot.tool.web.*` slots when
     // they exist on the host page. They never re-fetch; they read the
@@ -369,8 +377,8 @@ window.__ModuleLoader__.load({
     }
 
     function SearchToolview(react, ui, localeRef) {
-      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
-      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
       var IconGlobe = ui && ui.IconGlobeOutlineRegular ? ui.IconGlobeOutlineRegular : null
       var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
       var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
@@ -565,7 +573,7 @@ window.__ModuleLoader__.load({
                 answer !== ''
                   ? react.createElement('div', { className: 'dshn-answer' },
                     MarkdownText
-                      ? react.createElement(MarkdownText, { text: answer })
+                      ? react.createElement(MarkdownText, { text: answer, labels: markdownLabels(localeRef) })
                       : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, answer))
                   : (sources.length
                     ? sourceList(sources)
@@ -601,8 +609,8 @@ window.__ModuleLoader__.load({
      * how to page the rest (`http_request` again with `cacheId` + offset).
      */
     function HttpRequestToolview(react, ui, localeRef) {
-      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
-      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
       var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
       var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
       var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
@@ -826,8 +834,8 @@ window.__ModuleLoader__.load({
      * tool output and what the user sees in the dedicated settings page.
      */
     function WebSitemapToolview(react, ui, localeRef) {
-      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
-      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
       var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
       var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
       var LinkIcon = ui && ui.LinkIconMedium ? ui.LinkIconMedium : null
@@ -976,7 +984,7 @@ window.__ModuleLoader__.load({
         if (!errored && summary !== '') {
           bodyChildren.push(react.createElement('div', { className: 'dshn-answer', key: 'summary' },
             MarkdownText
-              ? react.createElement(MarkdownText, { text: summary })
+              ? react.createElement(MarkdownText, { text: summary, labels: markdownLabels(localeRef) })
               : react.createElement('pre', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', margin: 0, font: 'inherit' } }, summary)))
         }
         if (entries.length > 0) {

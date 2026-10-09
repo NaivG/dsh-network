@@ -28,6 +28,9 @@ window.__ModuleLoader__.load({
     // Shared surface from the entry module (dsh/client.js).
     var shared = require('dsh-network')
     var labelText = shared.labelText
+    // Memo-aware component test + the renderer's label seats (see the entry).
+    var isRenderable = shared.isRenderable
+    var markdownLabels = shared.markdownLabels
     var noteFrom = shared.noteFrom
     var fetchConfig = shared.fetchConfig
     var STYLES = shared.STYLES
@@ -81,8 +84,8 @@ window.__ModuleLoader__.load({
     }
 
     function SearchPanelPage(react, ui, localeRef) {
-      var MarkdownText = ui && typeof ui.MarkdownText === 'function' ? ui.MarkdownText : null
-      var TextShimmer = ui && typeof ui.TextShimmer === 'function' ? ui.TextShimmer : null
+      var MarkdownText = ui && isRenderable(ui.MarkdownText) ? ui.MarkdownText : null
+      var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
       var IconGlobe = ui && ui.IconGlobeOutlineRegular ? ui.IconGlobeOutlineRegular : null
       var IconWarning = ui && ui.IconWarningOutlineRegular ? ui.IconWarningOutlineRegular : null
       var IconSearch = ui && ui.IconSearchOutlineRegular ? ui.IconSearchOutlineRegular : null
@@ -332,7 +335,7 @@ window.__ModuleLoader__.load({
               IconGlobe ? react.createElement(IconGlobe, { size: 12 }) : null,
               t.searchPanelSummary),
             MarkdownText
-              ? react.createElement(MarkdownText, { text: summary })
+              ? react.createElement(MarkdownText, { text: summary, labels: markdownLabels(localeRef) })
               : react.createElement('div', { style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', font: 'inherit' } }, summary))
 
         var attemptsBlock = attempts.length > 0

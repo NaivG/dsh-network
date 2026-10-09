@@ -320,6 +320,68 @@ window.__ModuleLoader__.load({
       return labels(lang)
     }
 
+    /**
+     * Is `value` something React can render as an element type?
+     *
+     * NOT `typeof value === 'function'` — dsh's primitives export their
+     * markdown and shimmer atoms through `React.memo`, so the SHIPPED
+     * `MarkdownText` / `TextShimmer` are memo objects (`$$typeof:
+     * Symbol(react.memo)`, `type`, `compare`) and the function-only guard
+     * evaluated false for both. That silently sent every search answer through
+     * the raw-text `<pre>` fallback: the card showed literal `### query`,
+     * `[title](url)` and `&nbsp;` in a proportional font while every other
+     * primitive (the plain icons are real functions) kept working — the exact
+     * "markdown does not render" defect. Accept functions, memo objects,
+     * forwardRef objects and `React.lazy` payloads; reject null, strings
+     * (hosts that hand in the raw `{ Input: 'input' }` fallback shape) and
+     * anything without a renderable tag.
+     */
+    function isRenderable(value) {
+      if (typeof value === 'function') return true
+      if (!value || typeof value !== 'object') return false
+      var tag = value.$$typeof
+      if (!tag) return typeof value.render === 'function'
+      var tags = []
+      // `react` is bound inside apply() on purpose (the host page owns the
+      // single React instance), but this helper is exported and must stay
+      // callable on its own — compare against the memo/forwardRef/lazy tags
+      // that exist in every React copy in the process, then by description.
+      if (typeof react === 'object' && react) {
+        tags.push(react.memo, react.forwardRef, react.lazy)
+      }
+      if (typeof Symbol === 'function' && Symbol.for) {
+        tags.push(Symbol.for('react.memo'), Symbol.for('react.forward_ref'), Symbol.for('react.lazy'))
+      }
+      for (var i = 0; i < tags.length; i++) {
+        if (tags[i] && tag === tags[i]) return true
+      }
+      // Last resort for an exotic bundler copy (Symbol.for tags always carry
+      // this description, whatever the internal key is renamed to).
+      var text = typeof tag === 'symbol' ? String(tag) : ''
+      return text.indexOf('react.memo') !== -1 || text.indexOf('react.forward_ref') !== -1 || text.indexOf('react.lazy') !== -1
+    }
+
+    /**
+     * Chrome labels for `ui.MarkdownText` (see `markdownLabels(t)` in
+     * dsh-client-ui-tool). The renderer reads them lazily — only a fenced code
+     * block touches `labels.code.copyLabel` and only a footnote touches
+     * `labels.footnotes` — but passing a complete object keeps a future answer
+     * with a code fence from throwing on a missing seat.
+     *
+     * The identity must stay reference-stable for a given locale: MarkdownText
+     * compares `labels` by reference and discards its streaming render cache on
+     * every new object. The caller builds this once per row render (the answers
+     * here are settled strings, never streamed), so a fresh object per call is
+     * fine as long as it is not rebuilt inside the body memo.
+     */
+    function markdownLabels(localeRef) {
+      var t = labelText(localeRef, 'en')
+      if (t === DICTS.zh) {
+        return { code: { copyLabel: '复制', copiedLabel: '已复制' }, footnotes: '脚注' }
+      }
+      return { code: { copyLabel: 'Copy', copiedLabel: 'Copied' }, footnotes: 'Footnotes' }
+    }
+
     function noteFrom(err, fallback) {
       var detail = err && typeof err.message === 'string' ? err.message : err ? String(err) : ''
       return detail || fallback
@@ -999,6 +1061,8 @@ window.__ModuleLoader__.load({
     // Chunk-shared surface: the chunks run require('dsh-network') and read
     // exactly these members (plus DICTS indirectly through labelText).
     exports.labelText = labelText
+    exports.isRenderable = isRenderable
+    exports.markdownLabels = markdownLabels
     exports.noteFrom = noteFrom
     exports.fetchConfig = fetchConfig
     exports.putConfig = putConfig

@@ -157,6 +157,26 @@ only actor that can flip the toggle.
   is detected by meta PRESENCE (a finished zero-hit call persists a meta
   object), not by hit count — the old test left such calls showing
   搜索中… forever.
+- **Markdown rendering in the tool cards** (`dsh/client.js` `isRenderable`
+  + `markdownLabels`, consumed by `client.toolviews.js` and
+  `client.searchpanel.js`). Every answer/body string the rows show
+  (`meta.answer`, the `web_sitemap` digest, the search panel's summary) goes
+  through the host's `ui.MarkdownText` primitive. That primitive MUST be
+  detected with `isRenderable(value)`, never `typeof value === 'function'`:
+  dsh exports `MarkdownText` / `TextShimmer` through `React.memo`, so the
+  shipped value is a memo object (`{ $$typeof: Symbol(react.memo), type,
+  compare }`) and the function-only test silently evaluated FALSE on every
+  build. The rows then took the raw-text `<pre>` fallback and the card showed
+  literal `### <query>`, `[title](url)` and `&nbsp;` in a proportional font
+  while the plain icons (real functions) kept working — the "web search does
+  not render" defect. `isRenderable` accepts functions, memo / forwardRef /
+  lazy tag objects and `render`-carrying objects, and rejects null, plain
+  objects and the strings of the degraded `{ Input: 'input' }` host surface.
+  `MarkdownText` also requires its `labels` seats (dsh's own
+  `markdownLabels(t)`); they are read lazily (only a code fence touches
+  `labels.code.copyLabel`, only a footnote `labels.footnotes`), and the entry
+  supplies them per locale so a memo-wrapped renderer never throws on a
+  missing seat.
 - **Sidebar search panel** (`dsh/client.searchpanel.js` `SearchPanelPage` +
   `dsh/routes.js` `registerSearchRoute`). A search-engine-style page behind
   a sidebar rail entry, built on the same two-registration protocol the
@@ -262,8 +282,10 @@ dsh-network/
 │   ├── cache.spec.ts           # vitest, ResultCache (dedup, slice, eviction, degrade)
 │   ├── host-cache-slice.spec.ts# vitest, host-side cacheSlice pass-through contract
 │   ├── presentationmeta.spec.ts# vitest, presentation_metadata envelope fields
+│   ├── client-toolview.render.spec.ts # vitest, browser half: mock module loader +
+│   │                           # react-dom/server — renders the real toolview chunks and
+│   │                           # pins memo-aware MarkdownText / TextShimmer detection
 │   ├── schema-check.mjs        # node guard: tool schemas in the dsh host modules pass dsh-tools' subset (skips when dsh absent)
-│   ├── client-smoke.mjs        # node smoke test for the browser half (STALE — see Verification)
 │   ├── persist-smoke.mjs       # node smoke test for the durable config store (host half)
 │   └── server-smoke.mjs        # node smoke test for the loopback server (echo → /invoke → cache paging → /shutdown)
 └── dist/
@@ -319,8 +341,17 @@ are bounded by `--max-results` (default 10, hard cap 20).
 
 ## Verification
 
-- `pnpm test` for the pure-module unit suite (~115 cases — vitest,
-  runs in ~1 s, no network).
+- `pnpm test` for the pure-module unit suite (~127 cases — vitest,
+  runs in ~3 s, no network). `tests/client-toolview.render.spec.ts`
+  covers the browser half: it materializes the REAL `dsh/client.js`
+  and `dsh/client.toolviews.js` through a mock of
+  `@deepseek-ai/dsh-client-modules` (`window.__ModuleLoader__.load`,
+  factory return value = record exports) with `react` as the only seed
+  word, then renders the rows with `react-dom/server`. It pins the
+  memo-aware `isRenderable` contract (a memo-shaped `MarkdownText`
+  must be USED, not bypassed) and the degraded `{ Input }` fallback.
+  Only `react` + `react-dom` are needed — `MarkdownText` itself is
+  stubbed, so no dsh install is required.
 - `pnpm run test:server` for the loopback server smoke
   (`tests/server-smoke.mjs`, plain node): spawns the built
   `dist/cli.cjs server`, points it at a local 25 000-char echo
@@ -348,10 +379,7 @@ are bounded by `--max-results` (default 10, hard cap 20).
   the working tree is CRLF and a bare `\n` silently matched ZERO blocks
   on Windows, turning the guard into a no-op.
 - `pnpm run test:all` runs the unit suite, all three smokes, and the
-  schema guard in one go. Note: currently fails at `test:client` (stale
-  smoke, see above) — the effective bar is `pnpm test` +
-  `pnpm run test:schema` (+ `test:server` / `test:persist` for host-side
-  changes).
+  schema guard in one go.
 - `pnpm build` to produce `dist/cli.cjs` + `dist/server-*.cjs`;
   smoke-test with `node ./dist/cli.cjs -u https://example.com/ --allow-private-network`.
 - Real end-to-end runs cost public-engine budget: ask before bulk.
