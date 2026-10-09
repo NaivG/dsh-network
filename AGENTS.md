@@ -44,8 +44,8 @@ only what you need to **change the code without breaking it**.
   exits it.
 - **Per-call env snapshot.** `configToEnv(config)` carries the host's LIVE
   config (engine order, timeouts, allowlist, GitHub token, SearXNG endpoint,
-  engine keys, engine options) on every `/invoke`, so UI edits land on the
-  next tool call with no server restart.
+  engine keys, engine options, and the `web_download` workspace root) on every
+  `/invoke`, so UI edits land on the next tool call with no server restart.
 - **Vite SSR build for the CLI** (`dist/cli.cjs`, `vite.cli.config.ts`) so
   `node:*` imports stay Node-side. `src/server.ts` is dynamically imported by
   `src/cli.ts`, so it lands in a hashed chunk (`dist/server-*.cjs`) that the
@@ -58,6 +58,18 @@ only what you need to **change the code without breaking it**.
   `fetch.ts` pipes through `officeparser`'s `ast.to('md')`. Loaded via
   `await import` so tesseract.js stays out of the cold-start bundle. OCR is
   intentionally off.
+- **Binary bytes exist, but only through `mode: 'bytes'`** (`src/download.ts`,
+  web_download). `isBinaryContentType` still refuses them on every text path —
+  a base64 blob would blow the inline cap and tell the model nothing. The ONE
+  exception is `runClientFetch({ mode: 'bytes' })`: raw bytes for any content
+  type, no charset decode, no `maxChars` clip, and `truncated` always `false`
+  because `readBodyWithLimit` THROWS past `maxBytes` rather than returning a
+  short read. It is a MODE on the existing transport, not a second fetch path,
+  and that is the entire safety argument — the download inherits
+  `assertSafeRemoteTarget` + the pinned dispatcher, so a file write gets the
+  allowlist, the private-IP rejection and the same-domain redirect lock. A
+  downloader with its own socket would be the one unfenced path in the plugin.
+  Never grow one.
 - **HTML → Markdown stays hand-written** (`src/html.ts`): real web pages need
   a nav/footer/cookie-banner pre-filter that officeparser's HTML input does
   not provide. officeparser is for binary documents, where that noise profile
@@ -191,6 +203,60 @@ snippet. Brave's `plausiblePublishedAt` accepts only an ISO-8601 timestamp
 whose year lands in [1990, next year] — upstream returns epoch-seconds read
 as ms, and a wrong date in the evidence is worse than no date.
 
+### `web_download` is the ONE write, and it is fenced four ways
+
+The other five tools read a response. This one writes attacker-influenced
+bytes to a path the user can see and click, so every rule around it is a
+security rule, and the reasons are load-bearing:
+
+- **`downloadTool` defaults to `false` — the only field here that does.**
+  Every sibling defaults on because registering a reader costs nothing. It is
+  gated at REGISTRATION time (`apply()` skips it), which is stronger than the
+  others' call-time check: an unregistered tool is absent from the model's tool
+  list rather than throwing when used.
+- **The model can neither read nor write that flag.** `summarizeForModel()`
+  strips it (like `allowConfigEdit`) and `WEB_CONFIG_PATCH_SCHEMA` omits it, so
+  `web_config.set` cannot reach it through `pickConfigPatch()`. A model that
+  could enable its own file-write tool would make the opt-in meaningless.
+- **The destination root is host-resolved, never model-influenced.**
+  `defaultConfig()` resolves `workspaceDir` once from the host process
+  (`DSH_NETWORK_WORKSPACE_DIR` or `process.cwd()`), `configToEnv()` ships it as
+  `DSH_NETWORK_WORKSPACE_DIR`, and the model picks `dest` between two FIXED
+  roots. An absent value means "workspace unavailable" and the call FAILS —
+  the CLI must never fall back to the server child's own cwd, which is wherever
+  dsh happened to be launched.
+- **`dest` is an enum, not `workspace: bool`.** A bare boolean gets misread and
+  `workspace: true` in a transcript says nothing about WHICH workspace. The
+  enum also carries the default (`tmp`), which a boolean cannot.
+
+Then four fences inside `src/download.ts`, each covering a way the layer above
+it can lie:
+
+1. **Type from the BYTES.** Precedence is magic bytes → `Content-Type` →
+   filename, and every rung below the first exists only because the one above
+   can lie. `sniffExtension` must recognize markup POSITIVELY (`html`/`json`/
+   `xml`): returning `null` for an HTML anti-bot page hands the decision back to
+   the lying `Content-Type`, which is the exact failure the sniffer exists to
+   prevent. A disagreement is reported in `warnings`, never silently applied.
+2. **Containment.** `sanitizeFileName` neutralizes separators, control
+   characters, leading `..`, Windows device names and trailing dots/spaces;
+   `resolveInsideRoot` re-checks the RESOLVED path with `path.relative` (a
+   string prefix test misses `…/downloads-evil`). The second check is the one
+   that matters — it has to hold even if the sanitizer is ever weakened.
+3. **Executables are refused.** The denylist is checked against the sniffed
+   name AND the declared one: `setup.exe` is refused whether or not its bytes
+   look like an executable. A file in the workspace is one `pwsh -File` away
+   from running, and this plugin has no business granting that to a web page.
+4. **No truncation, ever.** `readBodyWithLimit` THROWS past `maxBytes`, so the
+   write is all-or-nothing, and it lands via `.part` → `rename` so a reader
+   never sees a partial file. Non-clobbering names (`a.png` → `a-1.png`)
+   because the workspace destination is where a deliverable lives.
+
+**It is deliberately NOT in the result cache.** The cache stores strings keyed
+by `fetch|format|url`; a warm hit could only rewrite the file or hand back a
+stale copy. `runOnce` passes no cache to `runDownload`, and the reason is in
+its header comment — do not "fix" that by threading the cache through.
+
 ### `web_search` is NOT cached
 
 Only fetch/http bodies are, so two identical searches in one turn bill the
@@ -244,8 +310,9 @@ never lazy-continue the last list item.
   already-taken priority **throws**. dsh claims `web_search` at priority 0,
   so the plugin claims `-900` for every row; the registration is try/caught so
   an upstream change can't take down the browser half. `http_request`,
-  `web_fetch`, `web_sitemap` and `web_config` have NO native cell at all (this
-  package replaces dsh's `tool-web`), so their rows render unconditionally.
+  `web_fetch`, `web_sitemap`, `web_config` and `web_download` have NO native
+  cell at all (this package replaces dsh's `tool-web`), so their rows render
+  unconditionally.
   Styling is composed to read like a first-party dsh card under `dshn-` class
   names, because the upstream hashed classes are internal to the dsh bundle.
 - Read arguments via `argsOf`: a settled dsh block carries them ONLY as the
@@ -332,6 +399,7 @@ survives unmounts in a module-level cache.
 dsh-network search  -q "typescript 5.9 release notes"
 dsh-network fetch   -u "https://example.com/docs"      --cache-id <id> --offset 4000 --limit 4000
 dsh-network         -X GET https://api.example.com/v1/users
+dsh-network download -u "https://example.com/logo.png" --dest tmp   # web_download
 dsh-network web_sitemap --query "github" --domain github.com
 dsh-network doctor                                     # no network
 dsh-network server   [--port <n>]                     # long-lived mode the host spawns
@@ -341,16 +409,18 @@ dsh-network server   [--port <n>]                     # long-lived mode the host
 `cacheId` + `contentLength` + preview; re-invoke with `--cache-id` (plus
 optional `--offset` / `--limit`) to page without re-issuing the request —
 `url` and `cacheId` are mutually exclusive. `web_search` / `web_sitemap` don't
-page; their lists are bounded by `--max-results` (default 10, cap 20). Full
-reference in [docs/cli.md](docs/cli.md).
+page; their lists are bounded by `--max-results` (default 10, cap 20).
+`download` neither pages nor caches — it returns a `path`. Full reference in
+[docs/cli.md](docs/cli.md).
 
 ## Verification
 
 | Command | Runs |
 |---|---|
-| `pnpm test` | vitest unit suite, zero network, ~6 s |
+| `pnpm test` | vitest unit suite, no external network, ~7 s |
 | `pnpm run test:server` | loopback server smoke (degrade → page → `/health` → `/shutdown`) |
 | `pnpm run test:persist` | durable store + `/dsh-network/search` route contract |
+| `pnpm run test:download` | built-CLI download smoke (workspace root, executables, byte cap, SSRF fence) |
 | `pnpm run test:schema` | tool schemas pass `dsh-tools.assertSupportedJsonSchema` (skips cleanly without dsh) |
 | `pnpm run test:all` | all of the above |
 

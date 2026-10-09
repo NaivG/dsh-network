@@ -1,9 +1,9 @@
 /**
  * dsh-network — model-facing tool registrations (host side).
  *
- * The five `ctx.tools.register` blocks (web_search / web_fetch /
- * http_request / web_config / web_sitemap) plus their systemPrompt
- * sections. Split out of index.js. The `parameters: { … },\n    output: {`
+ * The `ctx.tools.register` blocks (web_search / web_fetch /
+ * http_request / web_config / web_sitemap / web_download) plus their
+ * systemPrompt sections. Split out of index.js. The `parameters: { … },\n    output: {`
  * shape below is load-bearing: tests/schema-check.mjs extracts those
  * blocks textually, so keep the formatting stable.
  */
@@ -13,6 +13,7 @@ import {
   SEARCH_OUTPUT_SCHEMA,
   FETCH_OUTPUT_SCHEMA,
   HTTP_OUTPUT_SCHEMA,
+  DOWNLOAD_OUTPUT_SCHEMA,
   WEB_CONFIG_OUTPUT_SCHEMA,
   WEB_CONFIG_PATCH_SCHEMA,
   pickConfigPatch,
@@ -30,6 +31,7 @@ import {
   renderHttpEvidence,
   renderConfigEvidence,
   renderSitemapEvidence,
+  renderDownloadEvidence,
 } from './evidence.js'
 import { summarizeForModel, applyCardSettings } from './config-summary.js'
 
@@ -480,6 +482,142 @@ function registerHttpRequestTool(ctx, config) {
   })
 }
 
+// ───────────────────────────── web_download tool ────────────────────────────
+
+/**
+ * web_download — save one URL's bytes to a file.
+ *
+ * The gap this fills is not "web_fetch refuses binary" (that refusal is
+ * correct — an inline blob of base64 tells the model nothing and breaks the
+ * transport budget). It is that the model's ONLY other route to a file is
+ * `pwsh` + curl, which bypasses every guarantee this plugin makes: no
+ * allowlist, no private-IP rejection, no same-domain redirect lock, no TLS
+ * and UA pinning. One injected page is enough to aim that at a cloud
+ * metadata endpoint and drop the answer in the workspace. Routing the write
+ * through the same `runClientFetch` transport is the whole point.
+ *
+ * Registered only when `config.downloadTool === true` (see index.js), and
+ * the flag is read here too so a mid-session flip closes the door instead of
+ * leaving a live registration behind.
+ *
+ * `dest` is an enum rather than the `workspace: bool` this started as: a
+ * bare boolean is read wrong, and `workspace: true` in a transcript tells
+ * nobody WHICH workspace. The enum also carries the default (tmp), which a
+ * boolean cannot.
+ */
+function registerWebDownloadTool(ctx, config) {
+  ctx.tools.register({
+    name: 'web_download',
+    description:
+      'Download one HTTP(S) URL to a file on disk and return its path. Use this for binary payloads web_fetch refuses (images, archives, media, fonts) — for text pages and documents use web_fetch, which returns readable Markdown. SSRF-protected exactly like the other tools: private/reserved addresses are blocked unless allowlisted, and redirects stay on one domain. The file lands in the OS temp directory by default (`dest: "tmp"`); pass `dest: "workspace"` only when the user wants a file they will keep. Returns the absolute path, byte size and the type the bytes actually turned out to be — the extension follows the payload, not the URL.',
+    parameters: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['url'],
+      properties: {
+        url: { type: 'string', description: 'The HTTP(S) URL to download.' },
+        dest: {
+          type: 'string',
+          enum: ['tmp', 'workspace'],
+          description:
+            'Where to write. "tmp" (default) → the OS temp directory, disposable. "workspace" → the user\'s workspace `downloads/` folder, for files the user wants to keep.',
+        },
+        filename: {
+          type: 'string',
+          description:
+            'Preferred filename. Still sanitized, and the extension is decided by the payload itself — a name that disagrees with the bytes is corrected and reported.',
+        },
+      },
+    },
+    output: {
+      schema: DOWNLOAD_OUTPUT_SCHEMA,
+      render: (_args, value) => [{ type: 'text', text: renderDownloadEvidence(value) }],
+      presentationMeta: (_args, value) =>
+        compactPresentation({
+          url: value.finalUrl,
+          statusCode: value.statusCode,
+          contentType: value.contentType,
+          engine: value.engine,
+          // The row's whole job is "here is the file, here is where it went".
+          path: value.path,
+          filename: value.filename,
+          dest: value.dest,
+          bytes: value.bytes,
+          warnings: value.warnings,
+          uncertainty: value.uncertainty,
+        }),
+    },
+    // A large file takes much longer than a page render, and the download
+    // cap (100 MB by default) is generous enough that a slow origin would
+    // otherwise sit here until the harness kills it.
+    timeoutMs: 120_000,
+    isConcurrencySafe: () => true,
+    presentCall: (args) => {
+      const rawInput = String(args.url || '')
+      return { card: 'generic', title: rawInput, kind: 'download', rawInput }
+    },
+    presentResult: (args, result) => {
+      if (result.isError) return undefined
+      const meta = result.meta
+      if (!meta || typeof meta !== 'object') return undefined
+      const url = typeof meta.url === 'string' ? meta.url : String(args.url || '')
+      return {
+        card: 'web',
+        kind: 'download',
+        title: typeof meta.filename === 'string' && meta.filename !== '' ? meta.filename : url,
+        url,
+        statusCode: typeof meta.statusCode === 'number' ? meta.statusCode : 0,
+        truncated: false,
+      }
+    },
+    async execute(args, exec) {
+      if (config.downloadTool !== true) {
+        throw new Error('web_download is disabled by the network settings (网络 → 工具 → 下载文件)')
+      }
+      const url = String(args.url || '').trim()
+      if (!/^https?:\/\//i.test(url)) throw new Error('web_download: an http(s) URL is required')
+      const dest = args.dest === 'workspace' ? 'workspace' : 'tmp'
+      if (dest === 'workspace' && !config.workspaceDir) {
+        throw new Error('web_download: the workspace destination is not available in this host')
+      }
+      const cliArgs = ['download', '-u', url, '--dest', dest, '-t', '110000']
+      if (typeof args.filename === 'string' && args.filename.trim() !== '') {
+        cliArgs.push('--filename', args.filename.trim())
+      }
+      if (config && config.ssrfProtection === false) cliArgs.push('--allow-private-network')
+      if (config && config.redirectProtection === false) cliArgs.push('--no-redirect-protection')
+      if (config && config.protocolLock === false) cliArgs.push('--no-protocol-lock')
+      const entry = await runCli(cliArgs, exec.signal, config)
+      if (entry.status !== 'ok') {
+        const attempt = Array.isArray(entry.attempts) && entry.attempts[0]
+        throw new Error(
+          `web_download: ${entry.summary || 'unavailable'}${attempt ? ` (${attempt.stage || 'download'}: ${attempt.error})` : ''}`,
+        )
+      }
+      return {
+        url: typeof entry.url === 'string' && entry.url !== '' ? entry.url : url,
+        finalUrl: entry.finalUrl || url,
+        statusCode: entry.statusCode,
+        contentType: entry.contentType || '',
+        engine: entry.engine,
+        summary: entry.summary,
+        path: entry.path || '',
+        filename: entry.filename || '',
+        dest: entry.dest === 'workspace' ? 'workspace' : 'tmp',
+        bytes: Number.isInteger(entry.bytes) ? entry.bytes : 0,
+        uncertainty: Array.isArray(entry.uncertainty) ? entry.uncertainty : [],
+        warnings: Array.isArray(entry.warnings) ? entry.warnings : [],
+      }
+    },
+  })
+  ctx.systemPrompt.section({
+    name: 'tool:web_download',
+    order: 113,
+    text:
+      'Use the web_download tool to save a binary file (image, archive, media, font) to disk — web_fetch and http_request return text and refuse binary content. It returns an absolute `path` you can pass to another tool; the extension reflects the payload, so trust `filename`/`contentType` over the URL. Default `dest` is the OS temp dir and may be cleaned up: use `dest: "workspace"` only when the user wants to keep the file. Executable extensions (.exe/.ps1/.sh/…) are refused, as are transfers past the size cap.',
+  })
+}
+
 // ───────────────────────────── web_config tool ────────────────────────────
 
 /**
@@ -809,4 +947,5 @@ export {
   registerHttpRequestTool,
   registerWebConfigTool,
   registerWebSitemapTool,
+  registerWebDownloadTool,
 }

@@ -326,6 +326,44 @@ function renderSitemapEvidence(value) {
   return lines.join('\n')
 }
 
+// ───────────────────── web_download evidence ────────────────────
+
+/**
+ * web_download has no body to render, so the evidence IS the file's
+ * identity. The path goes on its own line, unquoted and un-fenced, because
+ * the very next thing the model does is paste it into another tool — and a
+ * `path` key/value table or an indented block makes that a re-typing
+ * exercise. `dest` is spelled out because `tmp` vs `workspace` changes
+ * whether the file survives the session, which is exactly the thing the
+ * model has to reason about before pointing a follow-up tool at it.
+ */
+function renderDownloadEvidence(value) {
+  const lines = []
+  if (value.status === 'unavailable') {
+    lines.push('[unavailable: nothing was written]')
+  }
+  lines.push(value.summary || '')
+  lines.push('', `Path: ${value.path || ''}`)
+  if (value.dest) {
+    const where =
+      value.dest === 'workspace'
+        ? 'workspace (persists until you delete it)'
+        : 'tmp (may be cleaned up; move it to the workspace to keep it)'
+    lines.push(`Location: ${value.dest} — ${where}`)
+  }
+  if (Number.isInteger(value.bytes)) {
+    lines.push(`Size: ${Number(value.bytes).toLocaleString()} bytes`)
+  }
+  if (value.contentType) lines.push(`Content-Type: ${value.contentType}`)
+  if (Array.isArray(value.uncertainty) && value.uncertainty.length > 0) {
+    lines.push('', `Uncertain: ${value.uncertainty.join('; ')}`)
+  }
+  if (Array.isArray(value.warnings) && value.warnings.length > 0) {
+    lines.push('', `Warnings: ${value.warnings.join('; ')}`)
+  }
+  return lines.join('\n')
+}
+
 export {
   toSearchSources,
   compactPresentation,
@@ -337,6 +375,7 @@ export {
   renderHttpEvidence,
   renderConfigEvidence,
   renderSitemapEvidence,
+  renderDownloadEvidence,
   renderSearchSourceItem,
   RENDER_CONTENT_CAP,
 }

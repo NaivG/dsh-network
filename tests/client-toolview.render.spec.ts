@@ -339,6 +339,108 @@ describe('web_fetch toolview row', () => {
   })
 })
 
+describe('web_download toolview row', () => {
+  /** A settled `web_download` call the way the host persists it (see dsh/tools.js). */
+  function downloadBlock(meta: Record<string, unknown> = {}, args: Record<string, unknown> = {}) {
+    return {
+      kind: 'tool-result',
+      call: {
+        name: 'web_download',
+        argsRaw: JSON.stringify({ url: 'https://cdn.example.com/pixel.png', ...args }),
+      },
+      meta: {
+        url: 'https://cdn.example.com/pixel.png',
+        statusCode: 200,
+        contentType: 'image/png',
+        engine: 'undici',
+        path: 'C:\\Users\\u\\AppData\\Local\\Temp\\dsh-network\\pixel.png',
+        filename: 'pixel.png',
+        dest: 'tmp',
+        bytes: 70,
+        warnings: [],
+        uncertainty: [],
+        ...meta,
+      },
+    }
+  }
+
+  function renderDownloadRow(views, ui, block = downloadBlock()) {
+    const Row = views.WebDownloadToolview(react, ui, { current: null })
+    return renderToStaticMarkup(react.createElement(Row, { block }))
+  }
+
+  it('leads with the written path — the file is the entire payload', () => {
+    const { views } = createHarness()
+    const html = renderDownloadRow(views, primitivesWith())
+
+    expect(html).toContain('文件下载')
+    expect(html).toContain('pixel.png')
+    // Open by default: there is no long body to hide, and the path is what
+    // the user opened the row for.
+    expect(html).toContain('aria-expanded="true"')
+    // The path is what the model hands to the next tool, so it has to be in
+    // the row verbatim — selectable text, not a link (a link would 404 for a
+    // tmp file, or navigate the IDE out of the conversation).
+    expect(html).toContain('dshn-headers-value')
+    expect(html).toContain('AppData')
+    expect(html).not.toContain('data-markdown="real"')
+  })
+
+  it('names the destination, because tmp and workspace differ in ownership', () => {
+    const { views } = createHarness()
+    const tmp = renderDownloadRow(views, primitivesWith())
+    expect(tmp).toContain('临时文件')
+
+    const workspace = renderDownloadRow(
+      views,
+      primitivesWith(),
+      downloadBlock({ dest: 'workspace', path: 'D:\\proj\\downloads\\pixel.png' }),
+    )
+    expect(workspace).toContain('工作区文件')
+    expect(workspace).toContain('D:\\proj\\downloads\\pixel.png')
+  })
+
+  it('reports the size and the type in the header', () => {
+    const { views } = createHarness()
+    const html = renderDownloadRow(views, primitivesWith())
+
+    expect(html).toContain('70 B')
+    expect(html).toContain('image/png')
+  })
+
+  it('opens by default on a refusal, so the reason is not hidden', () => {    const { views } = createHarness()
+    const html = renderDownloadRow(
+      views,
+      primitivesWith(),
+      {
+        kind: 'tool-result',
+        isError: true,
+        call: { name: 'web_download', argsRaw: JSON.stringify({ url: 'https://cdn.example.com/setup.exe' }) },
+        content: [
+          { type: 'text', text: 'Error: web_download: Refusing to save an executable (".exe")' },
+        ],
+      },
+    )
+
+    expect(html).toContain('aria-expanded="true"')
+    expect(html).toContain('Refusing to save an executable')
+    expect(html).not.toContain('下载中')
+  })
+
+  it('shimmers the running row with the download wording', () => {
+    const { views } = createHarness()
+    const Row = views.WebDownloadToolview(react, primitivesWith(), { current: null })
+    const html = renderToStaticMarkup(
+      react.createElement(Row, {
+        block: { call: { name: 'web_download', argsRaw: JSON.stringify({ url: 'https://cdn.example.com/pixel.png' }) } },
+      }),
+    )
+
+    expect(html).toContain('data-shimmer="real"')
+    expect(html).toContain('搜索中…')
+  })
+})
+
 describe('web_config toolview row', () => {
   /**
    * The row can only read `block.meta` — dsh never hands it the tool's VALUE —

@@ -76,6 +76,8 @@ window.__ModuleLoader__.load({
         toolHttpRequestDesc: '直接发起低层 HTTP 请求（自定义方法 / 头部 / body）。',
         toolWebSitemap: '门户查询',
         toolWebSitemapDesc: '查询常用门户入口表。',
+        toolWebDownload: '文件下载',
+        toolWebDownloadDesc: '把二进制文件（图片 / 压缩包 / 媒体等）保存到本地磁盘并返回路径。默认写入临时目录，可选写入工作区 downloads/。（默认关闭）',
         enginesHint: '按链顺序回退；web_search 支持通过 engine 参数指定单一引擎。',
         enginesCategory: '类别',
         enginesAdd: '添加到链',
@@ -234,6 +236,8 @@ window.__ModuleLoader__.load({
         toolHttpRequestDesc: 'Issue low-level HTTP requests with custom methods, headers, and body.',
         toolWebSitemap: 'Site Map',
         toolWebSitemapDesc: 'Look up the curated portal table.',
+        toolWebDownload: 'File Download',
+        toolWebDownloadDesc: 'Save a binary file (image / archive / media) to disk and return its path. Writes to the temp directory by default, or the workspace downloads/ folder. (Off by default)',
         enginesHint: 'Fallback in chain order; pass `engine` to web_search to target one.',
         enginesCategory: 'Category',
         enginesAdd: 'Add to chain',
@@ -817,6 +821,7 @@ window.__ModuleLoader__.load({
     var WEB_FETCH_ROW_PRIORITY = -900
     var WEB_SITEMAP_ROW_PRIORITY = -900
     var WEB_CONFIG_ROW_PRIORITY = -900
+    var WEB_DOWNLOAD_ROW_PRIORITY = -900
 
     // ────────────────────── slot registration ──────────────────────
     function tryRequire(spec) {
@@ -897,6 +902,7 @@ window.__ModuleLoader__.load({
       WEB_FETCH_ROW_PRIORITY: WEB_FETCH_ROW_PRIORITY,
       WEB_SITEMAP_ROW_PRIORITY: WEB_SITEMAP_ROW_PRIORITY,
       WEB_CONFIG_ROW_PRIORITY: WEB_CONFIG_ROW_PRIORITY,
+      WEB_DOWNLOAD_ROW_PRIORITY: WEB_DOWNLOAD_ROW_PRIORITY,
     }
     function apply(ctx) {
       if (typeof ctx.inject !== 'function') return
@@ -1088,6 +1094,7 @@ window.__ModuleLoader__.load({
                 var FetchRow = views.WebFetchToolview(react, ui, localeRef)
                 var SitemapRow = views.WebSitemapToolview(react, ui, localeRef)
                 var ConfigRow = views.WebConfigToolview(react, ui, localeRef)
+                var DownloadRow = views.WebDownloadToolview(react, ui, localeRef)
                 scope.slots.inject('tool.call.toolview', function* () {
                   try {
                     yield scope.slots.register(
@@ -1128,6 +1135,14 @@ window.__ModuleLoader__.load({
                     )
                   } catch (error) {
                     console.error('[dsh-network] web_config toolview not registered:', error)
+                  }
+                  try {
+                    yield scope.slots.register(
+                      { name: 'tool.call.toolview', id: 'dsh-network', key: 'web_download', priority: WEB_DOWNLOAD_ROW_PRIORITY, locale: 'dsh-network' },
+                      DownloadRow,
+                    )
+                  } catch (error) {
+                    console.error('[dsh-network] web_download toolview not registered:', error)
                   }
                 })
               } catch (error) {

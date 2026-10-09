@@ -12,6 +12,7 @@ server-side cache is paged. For the settings it reads see
 dsh-network search  -q <query>            [options]   Free Bing→DDG→Baidu search
 dsh-network fetch   -u <url>             [options]   Fetch URL → Markdown (or raw)
 dsh-network http | dsh-network -X <METHOD> <url>     Low-level HTTP request / cache paging
+dsh-network download -u <url>            [options]   Save a binary file to disk (web_download)
 dsh-network sitemap                       [options]   Curated portals lookup (web_sitemap)
 dsh-network doctor                                    Readiness report (no network)
 dsh-network server                        [options]   Persistent loopback HTTP server
@@ -101,6 +102,46 @@ dependency: real feeds carry unescaped `&`, unclosed `<link>`, `dc:` /
 strict parser turns any of those into a hard failure. DOCTYPEs — internal
 subsets and `<!ENTITY>` included — are skipped, never expanded.
 
+## Download options
+
+`fetch` refuses binary content on purpose — every model-facing tool returns
+text, and a base64 blob blows the inline budget while telling the model
+nothing. `download` is the one path that writes bytes to disk, and it runs on
+the **same transport** as everything else: same allowlist, same private-IP
+rejection, same same-domain redirect lock, same TLS/UA pin.
+
+```bash
+dsh-network download -u https://example.com/photo.jpg                       # → os.tmpdir()/dsh-network/
+dsh-network download -u https://example.com/photo.jpg --dest workspace     # → <workspace>/downloads/
+dsh-network download -u https://example.com/x.bin --filename report.bin    # preferred name
+```
+
+| Flag | Meaning | Default |
+|---|---|---|
+| `--dest tmp\|workspace` | `tmp` → `os.tmpdir()/dsh-network/`; `workspace` → `<workspace>/downloads/`. | `tmp` |
+| `--filename <name>` | Preferred filename. Still sanitized, and the extension is decided by the payload. | from `Content-Disposition`, else the URL |
+| `--max-bytes <n>` | Byte cap for one transfer. | 100 000 000 |
+
+`workspace` needs `DSH_NETWORK_WORKSPACE_DIR`; without it the call **fails**
+rather than falling back to the server child's own cwd, which is wherever dsh
+happens to have been launched.
+
+Four rules do the real work:
+
+- **The extension comes from the bytes.** Magic bytes first, then the
+  `Content-Type`, and only then the filename — each rung exists because the
+  one above it can lie. A server answering an image request with an HTML
+  anti-bot page lands as `x.html`, not `x.png`.
+- **Names cannot leave the root.** Separators, control characters, `..`,
+  Windows device names and trailing dots/spaces are all neutralized, and the
+  resolved path is checked against the destination root before the write.
+- **Executables are refused.** `.exe`, `.ps1`, `.sh`, `.js`, `.bat`, … — a
+  file in the workspace is one `pwsh -File` away from running. The check runs
+  on the declared name AND the sniffed one, so `setup.exe` is refused whether
+  or not its bytes look like an executable.
+- **Nothing is ever truncated.** Past `--max-bytes` the transfer FAILS; the
+  write is atomic (`.part` → rename), so a file that exists is a whole file.
+
 ## Shared options
 
 | Flag | Meaning | Default |
@@ -147,7 +188,7 @@ Every run prints one JSON envelope:
 ```jsonc
 {
   "ok": true,
-  "results": [ /* SearchEntry | FetchEntry | HttpEntry | SitemapEntry */ ],
+  "results": [ /* SearchEntry | FetchEntry | HttpEntry | DownloadEntry | SitemapEntry */ ],
   "elapsedMs": 412
 }
 ```
@@ -194,6 +235,12 @@ dsh-network http  --cache-id abc123 --offset 0 --limit 4000        # …or over 
 `fetch` / `http` are the only modes that degrade, and `offset` + `limit` pick
 the slice window: `limit` is capped at 20 000 chars, so a 175 432-char body
 takes nine pages.
+
+`download` is **never** cached, on purpose. The cache stores strings keyed by
+`fetch|format|url` and serves previews; a download's product is a file, so a
+warm hit could only rewrite it or hand back a stale copy of it. Re-downloading
+is cheap, a silently clobbered workspace file is not — which is also why the
+writer refuses to overwrite and picks `name-1.ext` instead.
 
 `web_search` and `web_sitemap` do not page: their result lists are bounded by
 the result cap (default 10, hard cap 20), and `web_search` is deliberately not

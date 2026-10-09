@@ -188,7 +188,7 @@ function check(label, schema) {
   }
 }
 
-for (const name of ['SEARCH_OUTPUT_SCHEMA', 'FETCH_OUTPUT_SCHEMA', 'HTTP_OUTPUT_SCHEMA', 'WEB_CONFIG_OUTPUT_SCHEMA', 'WEB_CONFIG_PATCH_SCHEMA']) {
+for (const name of ['SEARCH_OUTPUT_SCHEMA', 'FETCH_OUTPUT_SCHEMA', 'HTTP_OUTPUT_SCHEMA', 'DOWNLOAD_OUTPUT_SCHEMA', 'WEB_CONFIG_OUTPUT_SCHEMA', 'WEB_CONFIG_PATCH_SCHEMA']) {
   check(name, extractConst(name))
 }
 
@@ -202,8 +202,17 @@ for (const name of ['SEARCH_OUTPUT_SCHEMA', 'FETCH_OUTPUT_SCHEMA', 'HTTP_OUTPUT_
 const paramMatches = [
   ...src.matchAll(/parameters: \{\r?\n([\s\S]*?)\r?\n    \},\r?\n    output: \{/g),
 ]
-if (paramMatches.length !== 5) {
-  console.error(`expected 5 parameters blocks (search, fetch, http_request, web_sitemap, web_config), found ${paramMatches.length}`)
+// The count is ASSERTED, not just reported: a regex that silently stops
+// matching (the CRLF defect below) degrades this guard into a no-op that
+// still exits 0. Adding a tool means adding it to this list in the same
+// commit — that mismatch is the alarm.
+const EXPECTED_PARAM_BLOCKS = 6
+if (paramMatches.length !== EXPECTED_PARAM_BLOCKS) {
+  console.error(
+    `expected ${EXPECTED_PARAM_BLOCKS} parameters blocks ` +
+      '(search, fetch, http_request, web_sitemap, web_config, web_download), ' +
+      `found ${paramMatches.length}`,
+  )
   failed++
 } else {
   paramMatches.forEach((m, i) => {

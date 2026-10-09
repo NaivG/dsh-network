@@ -79,6 +79,12 @@ function summarize(config) {
     httpRequestTool: config.httpRequestTool !== false,
     webSitemapTool: config.webSitemapTool !== false,
     webConfigTool: config.webConfigTool !== false,
+    // web_download WRITES FILES. Every other tool only reads a response, so
+    // this one is the only toggle that grants a write capability to a web
+    // page — which is why it defaults OFF while its siblings default on
+    // (see defaultConfig) and why `summarizeForModel()` strips it: the model
+    // neither reads nor writes its own opt-in.
+    downloadTool: config.downloadTool === true,
     // Safety toggle that gates web_config.set (see SafetyFields in
     // dsh/client.js). The browser UI renders the corresponding switch
     // in the 网络 → 安全 section; the model NEVER sees this field —
@@ -95,7 +101,13 @@ function summarize(config) {
  * the user-only fields. `allowConfigEdit` is stripped because the
  * model must not be able to read its own gate — otherwise a single
  * `set` that happens to include `allowConfigEdit: false` would lock
- * the model out for the rest of the session. `webConfigTool` is
+ * the model out for the rest of the session. `downloadTool` is
+ * stripped for the same reason and one more: it is the switch for the
+ * only tool here that WRITES. Reading your own opt-in is harmless for a
+ * config write (the write gate itself still blocks), but a model that can
+ * see "I don't have file-write" only ever learns it from a missing tool —
+ * which is the same answer, without advertising that a flag exists.
+ * `webConfigTool` is
  * stripped too for symmetry: the model can't toggle whether its own
  * tool is registered, and exposing the field would only invite
  * confusion.
@@ -104,8 +116,9 @@ function summarize(config) {
  * leak; only `hasGithubToken`).
  */
 function summarizeForModel(config) {
-  const { allowConfigEdit: _allowConfigEdit, ...rest } = summarize(config)
+  const { allowConfigEdit: _allowConfigEdit, downloadTool: _downloadTool, ...rest } = summarize(config)
   void _allowConfigEdit
+  void _downloadTool
   return rest
 }
 
@@ -229,6 +242,14 @@ function applyCardSettings(config, patch) {
   if (typeof patch.webConfigTool === 'boolean') {
     config.webConfigTool = patch.webConfigTool
   }
+  // web_download's toggle is user-only, exactly like `allowConfigEdit`: the
+  // browser card writes it, the model never can. A model that could enable
+  // its own file-write tool would make the opt-in meaningless — and unlike
+  // the config-write gate, the escalation here hands out an arbitrary-write
+  // capability, so there is no version of "the model turns it on for me".
+  if (typeof patch.downloadTool === 'boolean') {
+    config.downloadTool = patch.downloadTool
+  }
   return { ok: true }
 }
 
@@ -330,6 +351,26 @@ function defaultConfig(raw) {
     webFetchTool: c.webFetchTool !== false,
     httpRequestTool: c.httpRequestTool !== false,
     webSitemapTool: c.webSitemapTool !== false,
+    // DEFAULT OFF, and the only tool here that is: it is the one tool whose
+    // side effect escapes the process. Everything else here reads a response
+    // and hands the model text, so "enabled by default" costs nothing; this
+    // one writes attacker-influenced bytes to a path the user can see and
+    // click, so the user opts in (网络 → 工具 → 下载文件).
+    downloadTool: c.downloadTool === true,
+    // Where `dest: "workspace"` writes. Resolved HERE, once, from the host
+    // process — never from anything the model passes — because the server is
+    // a long-lived child whose own cwd is not the user's notion of
+    // "workspace", so it cannot be left to guess. `DSH_NETWORK_WORKSPACE_DIR`
+    // overrides for hosts that launch dsh from somewhere other than the
+    // project the user is in (monorepos, containers, a launcher script).
+    // Deliberately NOT in `summarize()`: it is a host-local path, and the
+    // model learns where a file landed from the `path` web_download returns.
+    workspaceDir:
+      typeof c.workspaceDir === 'string' && c.workspaceDir.trim() !== ''
+        ? c.workspaceDir.trim()
+        : (typeof process !== 'undefined' && process.env && typeof process.env.DSH_NETWORK_WORKSPACE_DIR === 'string'
+            ? process.env.DSH_NETWORK_WORKSPACE_DIR
+            : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '')),
     // web_config exposes the live config to the model. The set action is
     // gated by this safety toggle (network settings → 安全 → "允许修改设置"
     // / "Allow the model to modify settings"); off by default so the

@@ -208,6 +208,10 @@ window.__ModuleLoader__.load({
         { key: 'webFetchTool', title: t.toolWebFetch, desc: t.toolWebFetchDesc },
         { key: 'httpRequestTool', title: t.toolHttpRequest, desc: t.toolHttpRequestDesc },
         { key: 'webSitemapTool', title: t.toolWebSitemap, desc: t.toolWebSitemapDesc },
+        // Last on purpose: it is the only row that is OFF by default, and
+        // the one whose description says so. Putting it after the four
+        // read-only tools keeps the default-on cluster visually together.
+        { key: 'downloadTool', title: t.toolWebDownload, desc: t.toolWebDownloadDesc },
       ]
       // draft may be null on the first paint (the route fetch is still
       // pending); guard every row access so the section renders an

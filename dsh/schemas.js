@@ -245,6 +245,46 @@ const WEB_CONFIG_OUTPUT_SCHEMA = {
   },
 }
 
+// web_download — one URL saved to a file on disk. There is no body field on
+// purpose: the product IS the file, and an inline preview of binary bytes
+// would put back exactly what the binary refusal removed. The model gets
+// where it landed, how big it is, and what the bytes turned out to be —
+// which is the information a follow-up tool (an image reader, an office
+// skill) actually needs.
+const DOWNLOAD_OUTPUT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'url',
+    'finalUrl',
+    'statusCode',
+    'contentType',
+    'engine',
+    'summary',
+    'path',
+    'filename',
+    'dest',
+    'bytes',
+    'uncertainty',
+    'warnings',
+  ],
+  properties: {
+    url: { type: 'string' },
+    finalUrl: { type: 'string' },
+    statusCode: { type: 'integer' },
+    contentType: { type: 'string' },
+    engine: { type: 'string' },
+    summary: { type: 'string' },
+    /** Absolute path of the written file — hand this to a follow-up tool. */
+    path: { type: 'string' },
+    filename: { type: 'string' },
+    dest: { type: 'string', enum: ['tmp', 'workspace'] },
+    bytes: { type: 'integer' },
+    uncertainty: { type: 'array', items: { type: 'string' } },
+    warnings: { type: 'array', items: { type: 'string' } },
+  },
+}
+
 // JSON Schema for the `patch` argument on web_config.set. Mirrors what
 // `applyCardSettings()` accepts so the model can only set fields the
 // browser UI also edits. `allowConfigEdit` is deliberately omitted:
@@ -319,6 +359,7 @@ export {
   WEB_SITEMAP_CATEGORIES,
   SITEMAP_OUTPUT_SCHEMA,
   HTTP_OUTPUT_SCHEMA,
+  DOWNLOAD_OUTPUT_SCHEMA,
   WEB_CONFIG_OUTPUT_SCHEMA,
   WEB_CONFIG_PATCH_SCHEMA,
 }

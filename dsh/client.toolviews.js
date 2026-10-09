@@ -1619,6 +1619,7 @@ window.__ModuleLoader__.load({
                 chip(t.toolWebFetch, switchState(config.webFetchTool), 't2'),
                 chip(t.toolHttpRequest, switchState(config.httpRequestTool), 't3'),
                 chip(t.toolWebSitemap, switchState(config.webSitemapTool), 't4'),
+                chip(t.toolWebDownload, switchState(config.downloadTool), 't5'),
               ], 'tools'), 'tools'),
             ], 'tools-group'),
             // ── GitHub engine. `hasGithubToken` is all the host ever exposes;
@@ -1651,6 +1652,169 @@ window.__ModuleLoader__.load({
       }
     }
 
+    /**
+     * `tool.call.toolview` row for `web_download` — the file-write tool.
+     *
+     * Same disclosure-row rhythm as HttpRequestToolview, but the body shows
+     * the one thing the model acted on: WHERE the bytes landed. The path is
+     * the payload here (there is no body to show), so it is rendered as
+     * selectable monospace text rather than a link — the user copies it, and
+     * a link would either 404 (tmp) or navigate the IDE away from the
+     * conversation.
+     *
+     * The `dest` badge is deliberately loud when it says `workspace`: that
+     * is the only download whose file the user is expected to still own
+     * tomorrow, and the difference is invisible from the path alone on some
+     * platforms.
+     */
+    function WebDownloadToolview(react, ui, localeRef) {
+      var IconChevronDown = ui && ui.IconChevronDownOutlineRegular ? ui.IconChevronDownOutlineRegular : null
+      var IconChevronUp = ui && ui.IconChevronUpOutlineRegular ? ui.IconChevronUpOutlineRegular : null
+
+      ensureToolviewStyles()
+
+      // Download-to-disk glyph: a downward arrow into a tray (Material
+      // `download`), which is also what the model-facing tool is named
+      // after — so the row and the trajectory entry read as the same act.
+      function downloadIcon() {
+        return react.createElement('svg', {
+          viewBox: '0 0 24 24',
+          fill: 'none', stroke: 'currentColor', strokeWidth: 2,
+          strokeLinecap: 'round', strokeLinejoin: 'round',
+          'aria-hidden': true,
+        },
+          react.createElement('path', { key: 'd', d: 'M12 3v11', fill: 'none' }),
+          react.createElement('path', { key: 'a', d: 'M7.5 10.5 12 15l4.5-4.5', fill: 'none' }),
+          react.createElement('path', { key: 't', d: 'M4 17.5v1.5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5', fill: 'none' }),
+        )
+      }
+
+      return function DshNetworkWebDownloadRow(props) {
+        var t = labelText(localeRef, '')
+        var block = (props && props.block) || {}
+        var args = argsOf(block)
+        var rawMeta = block.meta && typeof block.meta === 'object' && !Array.isArray(block.meta) ? block.meta : null
+        var meta = rawMeta || {}
+        var requestedUrl = typeof args.url === 'string' ? args.url : ''
+        var finalUrl = typeof meta.url === 'string' && meta.url !== '' ? meta.url : requestedUrl
+        var statusCode = Number.isInteger(meta.statusCode) ? meta.statusCode : null
+        var contentType = safeContentType(meta.contentType)
+        var filePath = typeof meta.path === 'string' ? meta.path : ''
+        var filename = typeof meta.filename === 'string' && meta.filename !== '' ? meta.filename : ''
+        var dest = meta.dest === 'workspace' ? 'workspace' : (meta.dest === 'tmp' ? 'tmp' : '')
+        var bytes = Number.isInteger(meta.bytes) ? meta.bytes : null
+        var warnings = Array.isArray(meta.warnings) ? meta.warnings : []
+
+        // Same canonical settled check as the other rows — a THROWN call
+        // (refused extension, over the size cap, blocked address) lands no
+        // meta at all, and meta-presence alone would leave it spinning.
+        var settled = isSettledToolCall(block) || rawMeta !== null
+        var errored = isErroredToolCall(block)
+        var errorMessage = errored ? errorMessageOf(block) : ''
+
+        // Open by DEFAULT on a settled call, success included (same as
+        // WebFetchToolview): the body is two short fields, and the path is
+        // the entire reason to open a download row — hiding it behind a
+        // click is how "where did that file go?" gets asked. A refusal is
+        // also open for the same reason: the message IS the answer.
+        var openState = react.useState(true)
+        var open = settled && openState[0]
+        var setOpen = openState[1]
+        var toggle = function () { setOpen(function (v) { return !v }) }
+
+        var headerFragments = []
+        headerFragments.push(filename !== '' ? filename : (requestedUrl || ''))
+        if (errored) {
+          headerFragments.push(t.searchToolFailed)
+        } else if (settled) {
+          if (dest !== '') headerFragments.push(dest)
+          if (bytes !== null) headerFragments.push(bytes.toLocaleString() + ' B')
+          if (contentType !== '') headerFragments.push(contentType)
+          if (statusCode !== null) headerFragments.push(String(statusCode))
+        } else {
+          headerFragments.push(t.searchToolRunning)
+        }
+
+        var badges = react.createElement('span', { className: 'dshn-suffix', key: 'badges' },
+          errored ? Badge(react, 'error', 'error') : null,
+          settled && !errored && statusCode !== null ? Badge(react, String(statusCode), statusTone(statusCode)) : null,
+          settled && !errored && dest !== '' ? Badge(react, dest, dest === 'workspace' ? 'warn' : 'meta') : null,
+          warnings.length ? Badge(react, warnings.length + ' warning' + (warnings.length > 1 ? 's' : ''), 'warn') : null,
+        )
+
+        var headerText = [react.createElement('span', { className: 'dshn-title', key: 'title' }, '文件下载')]
+        headerFragments.forEach(function (fragment, i) {
+          headerText.push(react.createElement('span', { className: 'dshn-sep', 'data-shimmer-decoration': true, 'aria-hidden': true, key: 'sep' + i }))
+          headerText.push(react.createElement('span', {
+            className: 'dshn-summary' + (i === headerFragments.length - 1 ? ' dshn-summary-fill' : ''),
+            key: 'frag' + i,
+          }, fragment))
+        })
+        headerText.push(badges)
+        var TextShimmer = ui && isRenderable(ui.TextShimmer) ? ui.TextShimmer : null
+        var textWrap = TextShimmer
+          ? react.createElement(TextShimmer, { active: !settled }, headerText)
+          : react.createElement('span', { className: 'dshn-textwrap' }, headerText)
+
+        var leading = react.createElement('span', { className: 'dshn-leading', 'aria-hidden': true },
+          open
+            ? (IconChevronUp ? react.createElement(IconChevronUp, { size: 14 }) : flowIcon(react, CHEVRON_UP_PATH, true))
+            : [
+              react.createElement('span', { className: 'dshn-icon-idle', key: 'idle' }, downloadIcon()),
+              react.createElement('span', { className: 'dshn-chevron-hover', key: 'chev' },
+                IconChevronDown ? react.createElement(IconChevronDown, { size: 14 }) : flowIcon(react, CHEVRON_DOWN_PATH, true)),
+            ],
+        )
+
+        var rowProps = {
+          type: 'button',
+          className: 'dshn-toolview-row',
+          onClick: settled ? toggle : undefined,
+          'aria-expanded': settled ? open : undefined,
+        }
+        if (!settled) rowProps['data-static'] = 'true'
+
+        var bodyChildren = []
+        if (errored) {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-error', role: 'alert', key: 'error' },
+            react.createElement('div', { className: 'dshn-error-title' }, t.searchToolFailed),
+            errorMessage !== '' ? react.createElement('pre', { className: 'dshn-error-detail' }, errorMessage) : null,
+          ))
+        }
+        if (!errored && filePath !== '') {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-headers', key: 'path' },
+            react.createElement('div', { className: 'dshn-headers-title' }, dest === 'workspace' ? '工作区文件' : '临时文件'),
+            react.createElement('div', { className: 'dshn-headers-row' },
+              react.createElement('span', { className: 'dshn-headers-name' }, '路径'),
+              react.createElement('span', { className: 'dshn-headers-value' }, filePath)),
+          ))
+        }
+        if (!errored && finalUrl !== '') {
+          bodyChildren.push(react.createElement('div', { className: 'dshn-headers', key: 'src' },
+            react.createElement('div', { className: 'dshn-headers-title' }, '来源'),
+            react.createElement('div', { className: 'dshn-headers-row' },
+              react.createElement('span', { className: 'dshn-headers-name' }, 'URL'),
+              react.createElement('span', { className: 'dshn-headers-value' }, finalUrl)),
+          ))
+        }
+        if (warnings.length) {
+          bodyChildren.push(react.createElement('ul', { key: 'warns', style: { paddingLeft: '18px', margin: '8px 0 0', fontSize: '12px' } },
+            warnings.map(function (w, i) { return react.createElement('li', { key: i }, w) })))
+        }
+
+        var bodyNode = !settled
+          ? null
+          : react.createElement('div', { className: 'dshn-body' },
+            react.createElement('div', { className: 'dshn-card' }, bodyChildren),
+          )
+
+        return react.createElement('div', { className: 'dshn-toolview' },
+          react.createElement('button', rowProps, leading, textWrap),
+          open ? bodyNode : null,
+        )
+      }
+    }
+
     return {
       Renderer,
       FetchBlockRenderer,
@@ -1659,6 +1823,7 @@ window.__ModuleLoader__.load({
       WebFetchToolview,
       WebSitemapToolview,
       WebConfigToolview,
+      WebDownloadToolview,
     }
 
   },

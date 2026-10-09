@@ -78,6 +78,8 @@ empty; `githubSort` defaults to `"best"`; `allowConfigEdit` defaults to
 | `webFetchTool` | Enables the `web_fetch` tool. | `true` |
 | `httpRequestTool` | Enables the `http_request` tool. | `true` |
 | `webSitemapTool` | Enables the `web_sitemap` tool. | `true` |
+| `downloadTool` | Enables the `web_download` tool. **The only field that defaults to `false`** — see below. | `false` |
+| `workspaceDir` | Root `web_download --dest workspace` writes into (files land in `<root>/downloads/`). Resolved once by the host process; override with `DSH_NETWORK_WORKSPACE_DIR` when dsh is launched from somewhere other than the project. Not in the config UI. | host `process.cwd()` |
 | `httpMethods` | Methods `http_request` may send. | all seven |
 | `ssrfProtection` | Reject loopback/private/reserved targets. Supersedes the legacy `allowPrivateNetwork` flag. | `true` |
 | `redirectProtection` | Reject redirects that leave the original domain. | `true` |
@@ -88,6 +90,25 @@ empty; `githubSort` defaults to `"best"`; `allowConfigEdit` defaults to
 | `searchEngineConfigs` | Per-engine rows: endpoint, `hasApiKey` (a derived view), free-form `options`. | `{}` |
 | `searchEngineApiKeys` | The actual engine credentials. Write-only via the UI. | `{}` |
 | `allowConfigEdit` | Gates `web_config`'s `set` action. Visible ONLY in 设置 → 网络 → 安全; hidden from the model on both `get` and `set`. | `false` |
+
+## Why `downloadTool` defaults to off
+
+Every other tool reads a response and hands the model text, so registering it
+by default costs nothing. `web_download` is the one tool whose side effect
+escapes the process: it writes attacker-influenced bytes to a path the user
+can see and click.
+
+So it is gated at **registration** time (`apply()` skips it entirely), which is
+a stronger statement than the other toggles' call-time check — a tool that was
+never registered is absent from the model's tool list, not merely throwing when
+used. Two further properties come with the gate:
+
+- The model can neither **read nor write** it. `summarizeForModel()` strips it
+  (like `allowConfigEdit`) and `WEB_CONFIG_PATCH_SCHEMA` omits it, so a
+  `web_config.set` can never grant it. A model that could enable its own
+  file-write tool would make the opt-in meaningless.
+- `workspaceDir` is resolved host-side and shipped to the CLI per invoke; the
+  model picks a `dest` between two fixed roots and can never name a third.
 
 ## Engines
 

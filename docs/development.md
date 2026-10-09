@@ -29,17 +29,23 @@ node ./dist/cli.cjs doctor
 
 | Script | What it runs |
 |---|---|
-| `pnpm test` | vitest unit suite (~160 cases, no network, ~6 s) — includes the browser-half render specs |
+| `pnpm test` | vitest unit suite (~230 cases, no external network, ~7 s) — includes the browser-half render specs |
 | `pnpm run test:server` | loopback server smoke (`tests/server-smoke.mjs`, plain node) |
 | `pnpm run test:persist` | durable-config-store smoke (`tests/persist-smoke.mjs`, plain node) |
+| `pnpm run test:download` | download CLI smoke (`tests/download-cli-smoke.mjs`, plain node; needs `dist/cli.cjs`) |
 | `pnpm run test:schema` | tool-schema guard (`tests/schema-check.mjs`, plain node; skips cleanly when dsh is absent) |
-| `pnpm run test:all` | unit suite + all three smokes in one go |
+| `pnpm run test:all` | unit suite + all four smokes in one go |
 
 ## Test suite
 
-Unit specs (vitest, zero network unless noted):
+Unit specs (vitest, no external network unless noted):
 
 - `tests/network.spec.ts` — URL/IP helpers, allowlist, error classification.
+- `tests/download.spec.ts` — the file-write boundary: filename sanitization,
+  magic-byte sniffing, `Content-Disposition` (RFC 5987), root containment, the
+  executable-extension denylist, then a loopback end-to-end over `downloadFile`
+  covering the bytes-mode transport, the byte cap, non-clobbering names and the
+  SSRF fence staying closed by default.
 - `tests/cache.spec.ts` — `ResultCache` dedup, slice paging, eviction,
   inline-cap degrade.
 - `tests/host-cache-slice.spec.ts` — host-side `cacheSlice` pass-through
@@ -86,13 +92,19 @@ Smokes:
      echo slice `[1000, 1500)`.
   3. `/health` reports the cache size, total chars, and hits.
   4. `/shutdown` exits the server cleanly with code 0.
-- `tests/persist-smoke.mjs` — snapshots save/load atomically,
-  corrupt/missing files degrade with a warning, and a full fake-host
+- `tests/persist-smoke.mjs` — snapshots save/load atomically,  corrupt/missing files degrade with a warning, and a full fake-host
   round-trip (apply → PUT → restart → GET) proves UI edits survive
   restarts, secrets included, `enabled` kill-switch excluded; also probes
   the `/dsh-network/search` route contract (fence 403, missing query 400,
   bad count 400, wrong method 405, and the `webSearchTool` kill-switch
   gating the route).
+- `tests/download-cli-smoke.mjs` drives the BUILT `dist/cli.cjs download`
+  against a throwaway loopback origin: the workspace destination honors
+  `DSH_NETWORK_WORKSPACE_DIR` and lands in `<root>/downloads/`, a `.js`
+  payload is refused as executable, `workspace` without a host root fails
+  instead of guessing, an over-cap transfer fails rather than truncating, a
+  loopback target is blocked unless `--allow-private-network` is passed, and
+  a 404 body is still saved with the non-200 status reported.
 - `tests/schema-check.mjs` — extracts every `parameters` / `output.schema`
   block from the dsh host modules (the constants live in `dsh/schemas.js`,
   the tool registrations in `dsh/tools.js`; the guard scans all host-side
@@ -118,7 +130,7 @@ dsh-network/
 │   ├── cli-runner.js           # server-client singleton + runCli/runCliSoft
 │   ├── evidence.js             # model-facing evidence rendering + previewText clip + jsonSafeMeta
 │   ├── providers.js            # web seam providers (search/fetch)
-│   ├── tools.js                # the five tool registrations
+│   ├── tools.js                # the six tool registrations
 │   ├── routes.js               # /dsh-network/config|health|search routes
 │   ├── config-summary.js       # summarize / summarizeForModel / applyCardSettings / fence
 │   ├── serverClient.js         # host ↔ loopback server client
@@ -126,14 +138,15 @@ dsh-network/
 │   ├── spawnHidden.js          # child-process boundary
 │   ├── client.js               # BROWSER entry: shared surface + apply()
 │   ├── client.settings.js      # chunk: "网络" settings section + legacy card
-│   ├── client.toolviews.js     # chunk: 5 toolview rows + dshn-* styles
+│   ├── client.toolviews.js     # chunk: 6 toolview rows + dshn-* styles
 │   └── client.searchpanel.js   # chunk: sidebar search panel
 ├── src/                        # CLI (vite SSR build → dist/cli.cjs)
-│   ├── cli.ts                  # argv parsing → search/fetch/http/sitemap/doctor/server
+│   ├── cli.ts                  # argv parsing → search/fetch/http/download/sitemap/doctor/server
 │   ├── server.ts               # loopback HTTP server + parent-death watcher
 │   ├── cache.ts                # ResultCache (dedup, LRU, degrade, paging)
-│   ├── client.ts               # RAW transport: undici + pinned-dispatcher SSRF
+│   ├── client.ts               # RAW transport: undici + pinned-dispatcher SSRF (text/bytes modes)
 │   ├── fetch.ts                # web_fetch formatting layer
+│   ├── download.ts             # web_download: name sanitize + magic sniff + atomic write
 │   ├── http_request.ts         # undici-direct low-level HTTP path
 │   ├── sitemap.ts              # web_sitemap curated portals table
 │   ├── network.ts              # URL/IP helpers, allowlist, error classification

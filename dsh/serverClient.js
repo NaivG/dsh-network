@@ -148,6 +148,16 @@ export function configToEnv(config) {
   if (Object.keys(options).length > 0) {
     env.DSH_NETWORK_ENGINE_OPTIONS = JSON.stringify(options)
   }
+  // ── web_download ────────────────────────────────────────────────────────
+  // The one path that is not a network knob: the ROOT `web_download` writes
+  // into when the model asks for `dest: "workspace"`. The server child is
+  // long-lived and its own cwd is wherever dsh was launched, so the host
+  // resolves the real workspace once (config-summary.defaultConfig) and
+  // ships it here per invoke. The CLI treats an empty value as "workspace
+  // unavailable" and refuses the call — it never falls back to its own cwd.
+  if (typeof c.workspaceDir === 'string' && c.workspaceDir !== '') {
+    env.DSH_NETWORK_WORKSPACE_DIR = c.workspaceDir
+  }
   return env
 }
 

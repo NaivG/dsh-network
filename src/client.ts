@@ -74,6 +74,22 @@ export interface FetchOptions {
   protocolLock?: boolean
   /** Override Node's own DNS lookup with this function (test seam). */
   lookup?: (host: string, options: { all?: boolean }, callback: LookupCallback) => void
+  /**
+   * How the final response body is handed back.
+   *
+   *  - `'text'` (default) — the historical behavior: document MIME types come
+   *    back as raw bytes in `bodyBuffer`, and binary / non-text-like content
+   *    types are refused.
+   *  - `'bytes'` — raw bytes in `bodyBuffer` for EVERY content type, with no
+   *    charset decoding and no `maxChars` clipping.
+   *
+   * `'bytes'` is the only door a binary payload has (web_download), which is
+   * precisely why it lives HERE rather than in the download layer: reusing
+   * `assertSafeRemoteTarget` + the pinned dispatcher is what keeps a file
+   * write inside the same SSRF fence as every other tool. A downloader that
+   * opened its own socket would be the one unfenced path in the plugin.
+   */
+  mode?: 'text' | 'bytes'
 }
 
 export interface PinnedTarget {
@@ -413,7 +429,8 @@ export async function runClientFetch(options: FetchOptions): Promise<ClientResul
       }
 
       const contentType = response.headers.get('content-type') || ''
-      if (isDocumentContentType(contentType)) {
+      const asBytes = options.mode === 'bytes'
+      if (!asBytes && isDocumentContentType(contentType)) {
         // Documents bypass the text decoder — pass the raw bytes through
         // to `bodyBuffer` so the formatting layer can run officeparser.
         const body = await readBodyWithLimit(response, maxBytes, timeoutMs)
@@ -444,14 +461,50 @@ export async function runClientFetch(options: FetchOptions): Promise<ClientResul
           },
         }
       }
-      if (isBinaryContentType(contentType)) {
-        throw new Error(`Refusing non-text content-type "${contentType.split(';')[0]}"; binary content is not returned.`)
+      if (!asBytes && isBinaryContentType(contentType)) {
+        throw new Error(
+          `Refusing non-text content-type "${contentType.split(';')[0]}"; binary content is not returned. ` +
+            'Use the web_download tool to save it to a file instead.',
+        )
       }
-      if (!isTextLikeContentType(contentType) && contentType !== '') {
+      if (!asBytes && !isTextLikeContentType(contentType) && contentType !== '') {
         throw new Error(`Unsupported content-type: ${contentType}. Only text-like content is allowed.`)
       }
 
       const body = await readBodyWithLimit(response, maxBytes, timeoutMs)
+      if (asBytes) {
+        // No charset decode (it would corrupt the bytes) and no `maxChars`
+        // clip (it counts characters, which is meaningless for a binary body).
+        // `truncated` is always false by construction: `readBodyWithLimit`
+        // THROWS past `maxBytes` rather than returning a short read, so a file
+        // written from this buffer is the complete response — never a partial
+        // one dressed up as a success.
+        return {
+          url: url,
+          finalUrl: currentUrl,
+          status: response.status,
+          statusText: response.statusText,
+          contentType,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: '',
+          bodyBuffer: body,
+          isHtml: false,
+          isDocument: false,
+          meta: {
+            fetchedAt: new Date().toISOString(),
+            bytes: body.length,
+            truncated: false,
+            redirectChain,
+            timeoutMs,
+            maxBytes,
+            maxChars,
+            privateNetworkAllowed: allowPrivateNetwork,
+            redirectProtection,
+            protocolLock,
+            engine,
+          },
+        }
+      }
       const charset = parseCharset(contentType) ?? 'utf-8'
       let decoded: string
       try {

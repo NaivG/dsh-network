@@ -41,6 +41,7 @@ import {
   registerHttpRequestTool,
   registerWebConfigTool,
   registerWebSitemapTool,
+  registerWebDownloadTool,
 } from './tools.js'
 import { registerConfigRoute, registerHealthRoute, registerSearchRoute } from './routes.js'
 
@@ -138,6 +139,11 @@ export function apply(ctx, rawConfig) {
   if (config.httpRequestTool) registerHttpRequestTool(ctx, config)
   if (config.webSitemapTool) registerWebSitemapTool(ctx, config)
   if (config.webConfigTool !== false) registerWebConfigTool(ctx, config)
+  // web_download is gated at REGISTRATION time (not at call time like the
+  // rest): it is off by default, and a tool that is not registered is
+  // absent from the model's tool list entirely — a stronger statement than
+  // a call that throws.
+  if (config.downloadTool === true) registerWebDownloadTool(ctx, config)
 
   // ── settings: NO settings-namespace registration, own durable file ─────
   // A `dsh-network` namespace in the settings document would be persisted,
@@ -155,7 +161,7 @@ export function apply(ctx, rawConfig) {
   registerSearchRoute(ctx, config)
 
   ctx.logger?.info?.(
-    '[dsh-network] active (engines=%s, fetchTimeoutMs=%d, httpTimeoutMs=%d, tools: search=%s fetch=%s http=%s sitemap=%s config=%s, allowConfigEdit=%s)',
+    '[dsh-network] active (engines=%s, fetchTimeoutMs=%d, httpTimeoutMs=%d, tools: search=%s fetch=%s http=%s sitemap=%s config=%s download=%s, allowConfigEdit=%s)',
     config.searchEngines.join(','),
     config.fetchTimeoutMs,
     config.httpTimeoutMs,
@@ -164,6 +170,7 @@ export function apply(ctx, rawConfig) {
     String(config.httpRequestTool),
     String(config.webSitemapTool),
     String(config.webConfigTool),
+    String(config.downloadTool === true),
     String(config.allowConfigEdit),
   )
 }

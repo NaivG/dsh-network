@@ -72,6 +72,11 @@ export function snapshotForPersist(config) {
     httpRequestTool: config.httpRequestTool !== false,
     webSitemapTool: config.webSitemapTool !== false,
     webConfigTool: config.webConfigTool !== false,
+    // web_download's opt-in rides the same snapshot as every other toggle:
+    // the user flipped it once in the browser, so it must survive a restart.
+    // It is NOT a "default on like the others" field — the snapshot carries
+    // whatever the user chose, and an absent key means off (defaultConfig).
+    downloadTool: config.downloadTool === true,
     // Safety toggle that gates web_config.set (see defaultConfig() in
     // dsh/index.js). Persisted so a UI flip survives restarts, just
     // like the other protections.

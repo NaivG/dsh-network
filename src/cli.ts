@@ -41,6 +41,7 @@ import { runClientFetch } from './client.ts'
 import { fetchPage } from './fetch.ts'
 import { DEFAULT_MAX_TOTAL_CHARS } from './feed.ts'
 import { runHttpRequest } from './http_request.ts'
+import { downloadFile, DEFAULT_DOWNLOAD_MAX_BYTES, type DownloadDest } from './download.ts'
 import { isPrivateHost, parseHttpUrl } from './network.ts'
 import {
   applyCacheToFetch,
@@ -149,7 +150,31 @@ interface SitemapEntry {
   attempts: Array<{ stage: string; error?: string }>
 }
 
-type Entry = SearchEntry | FetchEntry | HttpEntry | SitemapEntry
+/**
+ * web_download result. A download has no body to inline: the whole product
+ * is the file, so the envelope reports WHERE it landed, how big it is and
+ * what the bytes actually turned out to be.
+ */
+interface DownloadEntry {
+  kind: 'download'
+  engine: 'undici'
+  status: 'ok' | 'unavailable'
+  summary: string
+  /** Absolute path of the written file. */
+  path: string
+  filename: string
+  dest: 'tmp' | 'workspace'
+  bytes: number
+  statusCode: number
+  statusText: string
+  finalUrl: string
+  contentType: string
+  uncertainty: string[]
+  warnings: string[]
+  attempts: Array<{ stage: string; error: string }>
+}
+
+type Entry = SearchEntry | FetchEntry | HttpEntry | SitemapEntry | DownloadEntry
 interface Envelope {
   ok: boolean
   results: Entry[]
@@ -159,7 +184,7 @@ interface Envelope {
 }
 
 interface CliFlags {
-  mode: 'search' | 'fetch' | 'http' | 'sitemap' | 'help' | 'doctor' | 'server' | 'unknown'
+  mode: 'search' | 'fetch' | 'http' | 'sitemap' | 'download' | 'help' | 'doctor' | 'server' | 'unknown'
   query?: string
   url?: string
   method?: string
@@ -183,6 +208,12 @@ interface CliFlags {
   sitemapDigest?: boolean
   /** Sitemap-only: resolve a single entry by domain. */
   sitemapDomain?: string
+  /** Download-only: destination root selector (tmp | workspace). */
+  dest?: 'tmp' | 'workspace'
+  /** Download-only: explicit filename candidate (still sanitized). */
+  filename?: string
+  /** Download-only: byte cap; overrides DSH_NETWORK_DOWNLOAD_MAX_BYTES. */
+  maxBytes?: number
   /** Server mode: persistent loopback HTTP server. */
   server?: boolean
   /** Server mode: fixed loopback port (default: ephemeral). */
@@ -273,6 +304,18 @@ function parseFlags(argv: string[]): CliFlags {
     } else if (arg === '--cache-id') {
       const v = argv[++i]
       if (typeof v === 'string' && v.trim() !== '') flags.cacheId = v.trim()
+    } else if (arg === '--dest') {
+      const v = String(argv[++i] ?? '').trim().toLowerCase()
+      // Anything that is not literally `workspace` means `tmp`. An unknown
+      // destination must never widen the blast radius, so there is no third
+      // option to fall into.
+      flags.dest = v === 'workspace' ? 'workspace' : 'tmp'
+    } else if (arg === '--filename') {
+      const v = argv[++i]
+      if (typeof v === 'string' && v.trim() !== '') flags.filename = v.trim()
+    } else if (arg === '--max-bytes') {
+      const v = Number(argv[++i])
+      if (Number.isInteger(v) && v > 0) flags.maxBytes = v
     } else if (arg === '--port') {
       const v = Number(argv[++i])
       if (Number.isInteger(v) && v > 0 && v <= 65535) flags.serverPort = v
@@ -287,6 +330,8 @@ function parseFlags(argv: string[]): CliFlags {
       flags.mode = 'http'
     } else if (arg === 'sitemap' || arg === 'web_sitemap') {
       flags.mode = 'sitemap'
+    } else if (arg === 'download' || arg === 'web_download') {
+      flags.mode = 'download'
     } else if (arg === 'doctor') {
       flags.mode = 'doctor'
     } else if (arg === '-h' || arg === '--help') {
@@ -307,6 +352,7 @@ function parseFlags(argv: string[]): CliFlags {
     else if (positional[0] === 'fetch') flags.mode = 'fetch'
     else if (positional[0] === 'http') flags.mode = 'http'
     else if (positional[0] === 'sitemap' || positional[0] === 'web_sitemap') flags.mode = 'sitemap'
+    else if (positional[0] === 'download' || positional[0] === 'web_download') flags.mode = 'download'
     else if (positional[0] === 'doctor') flags.mode = 'doctor'
     else if (typeof flags.cacheId === 'string') flags.mode = 'http'
     // Bare `--cache-id` paging: the only producer in practice is the host's
@@ -333,6 +379,7 @@ function helpText(): string {
     '  dsh-network fetch  -u <url>             [options]   Fetch URL → Markdown (or raw)',
     '  dsh-network http | dsh-network -X <METHOD> <url>   Low-level HTTP request / cache paging',
     '  dsh-network sitemap                      [options]   Look up the curated portals table (web_sitemap)',
+    '  dsh-network download -u <url>           [options]   Save a binary file to tmp or the workspace (web_download)',
     '  dsh-network doctor                                   Readiness report (no network)',
     '  dsh-network server                       [options]   Persistent loopback HTTP server (host uses this)',
     '',
@@ -367,6 +414,14 @@ function helpText(): string {
     'Server options (server subcommand):',
     '  --port            int        Loopback port to listen on (default: ephemeral, printed on stdout)',
     '',
+    'Download options (download subcommand):',
+    '  --dest            tmp|workspace  Where to write: os.tmpdir()/dsh-network (default) or',
+    '                                <workspace>/downloads. "workspace" needs DSH_NETWORK_WORKSPACE_DIR.',
+    '  --filename        string     Preferred filename; still sanitized, and the extension is',
+    '                                decided by the payload magic bytes (never by the URL alone)',
+    '  --max-bytes       int        Byte cap for one download (default 100 MB; the transfer',
+    '                                FAILS past the cap, it never truncates)',
+    '',
     'Engine choices for search: bing, duckduckgo, baidu, github, searxng, brave. Default chain is the order given above.',
     'GitHub engine: hybrid REST search (repositories/code/issues/users). Code search needs',
     '  DSH_NETWORK_GITHUB_TOKEN; anonymous search is limited to 10 req/min per IP.',
@@ -394,6 +449,15 @@ interface ParsedConfig {
   searchMaxResults: number
   userAgent: string
   allowlist: string[]
+  /**
+   * Workspace root for `download --dest workspace`, supplied by the host's
+   * per-invoke env snapshot. Empty means the destination is unavailable — the
+   * CLI never falls back to `process.cwd()` on its own, because the server is
+   * a long-lived child whose cwd is not the user's notion of "workspace".
+   */
+  workspaceDir: string
+  /** Byte cap for one download (distinct from `maxBodyChars`, which caps a response preview). */
+  downloadMaxBytes: number
   /** Optional GitHub token; enables the code index and raises search quota. */
   githubToken: string
   /**
@@ -541,6 +605,8 @@ function loadConfig(env: NodeJS.ProcessEnv = process.env): ParsedConfig {
     githubIndexes: readEnvList(env, 'DSH_NETWORK_GITHUB_INDEXES'),
     githubSort: readEnvString(env, 'DSH_NETWORK_GITHUB_SORT', ''),
     allowlist: readEnvList(env, 'DSH_NETWORK_ALLOWLIST'),
+    workspaceDir: readEnvString(env, 'DSH_NETWORK_WORKSPACE_DIR', '').trim(),
+    downloadMaxBytes: readEnvInt(env, 'DSH_NETWORK_DOWNLOAD_MAX_BYTES', DEFAULT_DOWNLOAD_MAX_BYTES),
     searchEngineApiKeys: readEnvApiKeys(env),
     engineOptions: readEnvObject(env, 'DSH_NETWORK_ENGINE_OPTIONS'),
   }
@@ -1040,6 +1106,92 @@ async function runHttp(flags: CliFlags, config: ParsedConfig, cache?: ResultCach
 }
 
 /**
+ * web_download: fetch one URL and write the bytes to disk.
+ *
+ * Deliberately NOT wired to the result cache (the other three network modes
+ * all are). The cache stores strings keyed by `fetch|format|url` and serves
+ * previews; a download's product is a file, so a warm hit could only rewrite
+ * it or hand back a stale copy of it. Re-downloading is cheap; a silently
+ * clobbered workspace file is not.
+ */
+async function runDownload(flags: CliFlags, config: ParsedConfig): Promise<DownloadEntry> {
+  const fail = (summary: string, stage: string, error: string): DownloadEntry => ({
+    kind: 'download',
+    engine: 'undici',
+    status: 'unavailable',
+    summary,
+    path: '',
+    filename: '',
+    dest: (flags.dest ?? 'tmp') as DownloadDest,
+    bytes: 0,
+    statusCode: 0,
+    statusText: '',
+    finalUrl: '',
+    contentType: '',
+    uncertainty: [],
+    warnings: [],
+    attempts: [{ stage, error }],
+  })
+  const url = String(flags.url ?? '').trim()
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return fail('missing or non-http(s) URL', 'input', 'bad URL')
+  }
+  const dest: DownloadDest = flags.dest === 'workspace' ? 'workspace' : 'tmp'
+  if (dest === 'workspace' && config.workspaceDir === '') {
+    return fail(
+      'workspace destination unavailable: the host did not provide a workspace root',
+      'input',
+      'no workspace root',
+    )
+  }
+  try {
+    const r = await downloadFile({
+      url,
+      dest,
+      filename: flags.filename,
+      workspaceRoot: config.workspaceDir,
+      timeoutMs: flags.timeoutMs || config.fetchTimeoutMs,
+      maxBytes: flags.maxBytes ?? config.downloadMaxBytes,
+      maxRedirects: config.maxRedirects,
+      userAgent: config.userAgent || undefined,
+      allowlist: config.allowlist,
+      allowPrivateNetwork: flags.allowPrivate,
+      redirectProtection: flags.redirectProtection,
+      protocolLock: flags.protocolLock,
+    })
+    const warnings = [...r.warnings]
+    if (flags.allowPrivate) warnings.push('Private network protection was disabled for this download.')
+    if (!flags.redirectProtection) warnings.push('Redirect protection was disabled (cross-domain hops allowed).')
+    if (!flags.protocolLock) warnings.push('Protocol lock was disabled (http/https switches allowed).')
+    const uncertainty: string[] = []
+    if (r.status >= 400) {
+      // A 404 body is still a file on disk. Say so loudly rather than let a
+      // saved error page read as a successful download.
+      warnings.push(`The server answered HTTP ${r.status} ${r.statusText}; the file is the response body, not the file you asked for.`)
+    }
+    return {
+      kind: 'download',
+      engine: 'undici',
+      status: 'ok',
+      summary: `${r.filename} (${r.bytes} bytes, HTTP ${r.status})`,
+      path: r.path,
+      filename: r.filename,
+      dest: r.dest,
+      bytes: r.bytes,
+      statusCode: r.status,
+      statusText: r.statusText,
+      finalUrl: r.finalUrl,
+      contentType: r.contentType,
+      uncertainty,
+      warnings,
+      attempts: [],
+    }
+  } catch (error) {
+    return fail((error as Error).message, 'download', (error as Error).message)
+  }
+}
+
+/**
  * Web sitemap lookup. Pure (no I/O); the data lives in `sitemap.ts`.
  *
  * Modes:
@@ -1188,6 +1340,8 @@ export async function runOnce(argv: string[], ctx?: RunContext): Promise<Envelop
   else if (flags.mode === 'fetch') entry = await runFetch_(flags, config, ctx?.cache)
   else if (flags.mode === 'http') entry = await runHttp(flags, config, ctx?.cache)
   else if (flags.mode === 'sitemap') entry = await runSitemap(flags)
+  // No cache argument: see runDownload's header.
+  else if (flags.mode === 'download') entry = await runDownload(flags, config)
   else if (flags.mode === 'doctor') entry = await doctor(config, ctx?.env ?? process.env)
   else entry = await runFetch_(flags, config, ctx?.cache)
 

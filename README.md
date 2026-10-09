@@ -50,7 +50,8 @@ long-lived Node process:
   server-side cache; the model pages through them with a `cacheId` instead of
   losing the tail.
 - **Five tools** — search, fetch, raw `http_request`, a curated portal lookup
-  (`web_sitemap`), and `web_config` for the live settings.
+  (`web_sitemap`), and `web_config` for the live settings; plus `web_download`
+  for saving binary files, **off by default** (see [Settings](#settings)).
 - **Answers you can cite** — title, link, snippet and date per hit, plus an
   explicit uncertainty note when the engines disagree.
 - **Documents and feeds arrive as Markdown.** PDF, Word, PowerPoint, Excel,
@@ -77,6 +78,7 @@ stays claimed until you uninstall it.
 | `http_request` | Issues a low-level HTTP(S) request with full method, header, and body control. |
 | `web_sitemap` | Looks up a curated table of **178** authoritative portals — 23 categories spanning arxiv, MDN, package registries, Q&A sites, government, news, video… — by domain, category, priority, or free-text query, optionally returning a paste-able digest. |
 | `web_config` | Reads the live dsh-network configuration, or applies a partial patch when you have enabled the safety toggle (see [Settings](#settings)). Full behaviour: [configuration.md](docs/configuration.md#web_config-tool-and-the-safety-toggle). |
+| `web_download` | **Off by default** — turn it on under Settings → 网络 → 工具 and the model can save a binary file (image, archive, media, font) to disk and get its path back. It runs on the *same* transport as every other tool — same allowlist, same per-hop private-range block, same same-domain redirect lock — because the alternative is the model reaching for `curl`, and one injected page is enough to aim that at `169.254.169.254`. The extension comes from the payload rather than the URL (a `.png` that is really an HTML anti-bot page is not worth handing to an image reader), the path cannot escape its destination root, executable extensions are refused outright, and going over the size cap **fails instead of truncating**. Files land in the temp directory unless you explicitly ask for the workspace. |
 
 ### Tool cards
 
@@ -194,6 +196,9 @@ Everything lives in **设置 → 网络** and takes effect on the next tool call
   `webSitemapTool`. Flipping one off makes the matching tool fail fast, and the
   sidebar search route answers 403 while Web search is off. Restarting dsh
   fully unregisters the disabled tools.
+- **`downloadTool` is off by default.** It is the only tool here that writes to
+  disk, so the user opts in; once on, the model can neither read nor flip that
+  switch (handled exactly like `allowConfigEdit`).
 - **Safety** — SSRF protection, redirect protection, and protocol lock are ON
   by default, next to the model-settings toggle above.
 - Timeouts, User-Agent, result cap, redirect budget, allowed HTTP methods, and
@@ -213,10 +218,18 @@ reference, including the loopback routes, is in
   are on by default; the allowlist is empty (unrestricted) until you set one.
 - The transport refuses true binary content (image, audio, video, font,
   archive, generic octet-stream). Only a fixed allowlist of document MIME types
-  is parsed to Markdown.
+  is parsed to Markdown. The one exception is `web_download` asking to save a
+  file — and it takes the same transport rather than opening its own socket.
 - The loopback server binds to `127.0.0.1` only, and request bodies are capped.
 - `web_config`'s `set` action is gated by a toggle the model can neither read
   nor write, so a bad patch can never lock the model out of its own write path.
+- `web_download` adds three more fences: the filename cannot escape its
+  destination root (separators, `..` and Windows device names are neutralized,
+  and the resolved path is re-checked before the write); executable extensions
+  (`.exe`/`.ps1`/`.sh`/`.js`/`.bat`/…) are refused, checking both the declared
+  name and the sniffed one; and going over the byte cap **fails** rather than
+  truncating, with an atomic `.part` → rename write, so a file that exists is a
+  whole file.
 
 ## Troubleshooting
 

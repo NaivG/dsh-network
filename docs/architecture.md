@@ -23,7 +23,7 @@ see [configuration.md](configuration.md).
   in-tree plain-ESM modules: `dsh/schemas.js` (tool JSON Schemas + enum
   vocabularies), `dsh/cli-runner.js` (server-client singleton + `runCli`),
   `dsh/evidence.js` (model-facing evidence rendering), `dsh/providers.js`
-  (web seam providers), `dsh/tools.js` (the five tool registrations),
+  (web seam providers), `dsh/tools.js` (the six tool registrations),
   `dsh/routes.js` (loopback routes), `dsh/config-summary.js` (config
   projection / mutation / request fence). The host must stay hand-written:
   vite's lib mode silently replaces `node:*` imports with browser externals.
@@ -48,9 +48,19 @@ see [configuration.md](configuration.md).
 
 `configToEnv(config)` in `dsh/serverClient.js` carries the host's LIVE
 config on every `POST /invoke` body: engine order, timeouts, allowlist,
-GitHub token, SearXNG endpoint, the engine API-key map, and per-engine
-options. UI edits therefore take effect on the **next tool call** — the
-server never restarts for a settings change.
+GitHub token, SearXNG endpoint, the engine API-key map, per-engine
+options, and the workspace root `web_download` writes into. UI edits
+therefore take effect on the **next tool call** — the server never restarts
+for a settings change.
+
+`DSH_NETWORK_WORKSPACE_DIR` is the one value in that snapshot that is a
+filesystem path rather than a network knob, and it is the reason the
+snapshot exists in the direction it does: the server child is long-lived
+and its own cwd is wherever dsh was launched, so it cannot resolve "the
+user's workspace" for itself. The host resolves it once
+(`defaultConfig()`), the model picks a `dest` between two fixed roots, and
+an absent value means the `workspace` destination is **unavailable** — the
+CLI fails the call rather than guessing a root.
 
 ## Server routes and the result cache
 
@@ -262,7 +272,7 @@ DisclosureRow / ToolRow / WebBlock module CSS under `dshn-` class names
 to the dsh bundle; primitives exports (TextShimmer, flow icons,
 LinkIconMedium) are used when present with identical inline-SVG fallbacks.
 
-The five rows and what each body card carries:
+The six rows and what each body card carries:
 
 | tool | header fragments | body |
 |---|---|---|
@@ -271,6 +281,17 @@ The five rows and what each body card carries:
 | `web_fetch` | url · `→ final url` when redirected · status · content-type · link count | the page rendered as Markdown (`format: 'raw'` stays monospace) + outgoing links |
 | `web_sitemap` | domain / category / query · match counts | portal rows with badges, resolved search URLs, digest |
 | `web_config` | read/update · engine count (read) or change count (write) · persisted / refused | the 变更 list, then the live config as labelled groups + raw JSON |
+| `web_download` | filename · dest · byte size · content-type · status | the written **path** and the source URL |
+
+`web_download`'s row is open by default (like `web_fetch`, unlike
+`http_request`): its body is two short fields and the path is the entire reason
+to open the row. The path is rendered as selectable text, not a link — a
+`tmp` link would 404 and a `workspace` link would navigate the IDE out of the
+conversation. `dest` gets a `warn`-toned badge when it says `workspace`, since
+that is the only file the user is expected to still own tomorrow. A throwing
+call lands no meta at all, so a refusal (executable extension, over the size
+cap, blocked address) is detected by dsh's canonical `isError` check — never by
+meta presence — and opens itself, because the refusal text IS the answer.
 
 `web_config`'s row is the one whose subject IS the result, so its meta is
 unusually wide: `presentationMeta` persists the secret-free summary the model
