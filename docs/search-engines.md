@@ -142,9 +142,9 @@ date — but only after a plausibility gate that drops anything outside
 `[1990, next year]`, because a wrong date in the evidence is worse than no
 date.
 
-Check the credential state without spending anything: `dsh-network doctor`
-prints `apiKeys=[brave=no key]`, and probing the endpoint with no credential is
-free too.
+Check the credential state without spending anything:
+`npx @naivg/dsh-network doctor` prints `apiKeys=[brave=no key]`, and probing the
+endpoint with no credential is free too.
 
 ## Credentials
 

@@ -9,6 +9,7 @@
 [English](README.md) | **简体中文**
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@naivg/dsh-network?logo=npm&color=cb3837)](https://www.npmjs.com/package/@naivg/dsh-network)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc2-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
 [![Listed on DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-zh.svg)](https://dsh.market/)
@@ -26,8 +27,6 @@ Node 进程, 通过 `undici` 访问网络。超长结果会在服务端缓存中
 也都是可选的。
 
 适用于 `dsh: 0.1.0.rc2` 及更高版本。
-
-> **注意:** 本插件尚未发布到 npm。
 
 ## 为什么需要这个插件
 
@@ -133,8 +132,11 @@ dsh 网页界面会在侧边栏(位于插件与定时任务之后)新增一个**
 ## 安装
 
 ```bash
-# 从 GitHub 安装:
-dsh plugin --profile web add github:NaivG/dsh-network --allow-build=dsh-network
+# 从 npm 安装:
+dsh plugin --profile web add @naivg/dsh-network
+
+# 或者从 GitHub 安装(安装期间现构建 CLI bundle):
+dsh plugin --profile web add github:NaivG/dsh-network --allow-build=@naivg/dsh-network
 
 # 或者从本地检出安装:
 dsh plugin --profile web add link:<path-to-this-checkout>
@@ -210,11 +212,12 @@ dsh web
 
 ## 故障排查
 
-- **`dsh-network doctor`** 会打印解析后的配置——引擎链、超时、哪些 API key 已
-  配置——且不会访问任何外部服务。离线可用, 是排查的第一站。
-- **`dsh-network CLI bundle is missing`**——安装时的 `prepare` 构建被跳过了。
-  用 `--allow-build=dsh-network` 重新安装, 或在检出目录里执行
-  `pnpm install && pnpm build`(link 安装)。见
+- **`npx @naivg/dsh-network doctor`** 会打印解析后的配置——引擎链、超时、哪些
+  API key 已配置——且不会访问任何外部服务。离线可用, 是排查的第一站。
+- **`dsh-network CLI bundle is missing`**——CLI 构建被跳过了, 这只会发生在 git
+  或 link 安装上(发布到 npm 的 tarball 自带 `dist/`)。GitHub 安装请用
+  `--allow-build=@naivg/dsh-network` 重新安装, link 安装则在检出目录里执行
+  `pnpm install && pnpm build`。见
   [开发文档](docs/development.md#git-installs-and-the-prepare-hook)。
 - **某个带密钥的引擎提示"无凭据"**——在该引擎的**编辑**对话框里粘贴密钥并保存; 
   只有真正存下密钥后, 行上的徽标才会变绿。凭据规则见

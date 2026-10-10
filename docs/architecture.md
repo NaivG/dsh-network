@@ -227,12 +227,16 @@ via the loader's OFFICIAL `require.async` protocol (what a bundler's dynamic
 
 Chunk rules (from `@deepseek-ai/dsh-client-modules`): a chunk must be
 SELF-CONTAINED — it may require seed words (`react`) and the entry via
-`require('dsh-network')` (always materialized before a chunk runs), never
+`require('@naivg/dsh-network')` (always materialized before a chunk runs), never
 another chunk — and it registers with
-`window.__ModuleLoader__.load({ id, chunk, factory })`. A chunk has NO view
+`window.__ModuleLoader__.load({ id, chunk, factory })`. The `id` is the
+package name verbatim, scope included: the loader keys the browser bundle by
+the installed manifest's `name` (`exactPackageSpecifier` → `nearestPackage` →
+`graphRow(packageName, …)`), which is also why the chunk's own `id` must match
+the entry's. A chunk has NO view
 of the entry's file scope: every shared symbol (including the engine
 vocabulary `ENGINES` / `ENGINE_LABELS`) must be re-bound from the
-`require('dsh-network')` object by name. A leftover free variable is not a
+`require('@naivg/dsh-network')` object by name. A leftover free variable is not a
 syntax error, a load error or a warning — the chunk registers, materializes
 and exports happily, and then throws `ReferenceError` inside React's render,
 which takes the whole section down (`ENGINE_LABELS` in `client.settings.js`
@@ -242,7 +246,7 @@ blanked the entire 网络 page that way).
 faithful chunk loader).
 
 The dsh host serves each chunk on demand at
-`/plugins/dsh-network/<chunk>?rev=…` with zero configuration (it reads any
+`/plugins/@naivg/dsh-network/<chunk>?rev=…` with zero configuration (it reads any
 `client.*.js` sitting in the client entry's directory; package.json `files`
 already ships `dsh/`). Each chunk load is caught separately, so one failed
 surface never takes the others down. Per-plugin revisions derive from the
@@ -421,7 +425,11 @@ The bundle patch makes three moves when a profile installs the package:
    `web_search` / `web_fetch` tool names never land (the tools registry
    refuses duplicates).
 3. Insert the `dsh-network` cordis row whose `config:` block seeds the
-   defaults the host's `apply()` reads.
+   defaults the host's `apply()` reads. The row keeps the short free-form
+   `id` (the loader alias, the same shape `@deepseek-ai/dsh-web-app` uses)
+   and carries the package name in `name: '@naivg/dsh-network'` — the
+   `name` is the module specifier AND the browser bundle id, so the two
+   must not drift apart.
 
 ---
 

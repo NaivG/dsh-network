@@ -10,21 +10,21 @@
  *
  * Chunk protocol: this file sits next to dsh/client.js and matches the
  * loader's `client.<name>.js` chunk naming, so the dsh host serves it on
- * demand at /plugins/dsh-network/client.toolviews.js?rev=… The factory
- * requires the entry ('dsh-network') for the shared i18n label helper and
- * must stay SELF-CONTAINED otherwise — chunks cannot synchronously
+ * demand at /plugins/@naivg/dsh-network/client.toolviews.js?rev=… The factory
+ * requires the entry ('@naivg/dsh-network') for the shared i18n label helper
+ * and must stay SELF-CONTAINED otherwise — chunks cannot synchronously
  * require each other.
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-network',
+  id: '@naivg/dsh-network',
   chunk: 'client.toolviews.js',
   factory: function (require) {
     var module = { exports: {} }
     var exports = module.exports
 
     // Shared surface from the entry module (dsh/client.js).
-    var shared = require('dsh-network')
+    var shared = require('@naivg/dsh-network')
     var labelText = shared.labelText
     // `isRenderable` — NOT a `typeof … === 'function'` test. dsh ships
     // MarkdownText / TextShimmer through React.memo, so they arrive as memo
@@ -314,7 +314,7 @@ window.__ModuleLoader__.load({
       '.dshn-details summary{cursor:pointer}',
       '.dshn-details pre{white-space:pre-wrap;overflow-wrap:anywhere;margin:6px 0 0;font:inherit;max-height:280px;overflow:auto}',
     ].join('')
-    var TOOLVIEW_CSS_TAG = 'style[data-plugin-css="dsh-network/toolview.module.css"]'
+    var TOOLVIEW_CSS_TAG = 'style[data-plugin-css="@naivg/dsh-network/toolview.module.css"]'
     /** Inject the toolview stylesheet once; skipped where document.head is absent (tests, SSR). */
     function ensureToolviewStyles() {
       try {
@@ -322,8 +322,8 @@ window.__ModuleLoader__.load({
         if (typeof document.querySelector === 'function' && document.querySelector(TOOLVIEW_CSS_TAG)) return
         if (typeof document.createElement !== 'function') return
         var tag = document.createElement('style')
-        tag.setAttribute('data-plugin', 'dsh-network')
-        tag.setAttribute('data-plugin-css', 'dsh-network/toolview.module.css')
+        tag.setAttribute('data-plugin', '@naivg/dsh-network')
+        tag.setAttribute('data-plugin-css', '@naivg/dsh-network/toolview.module.css')
         tag.textContent = TOOLVIEW_CSS
         document.head.appendChild(tag)
       } catch (error) { /* decorative only — never block registration */ }

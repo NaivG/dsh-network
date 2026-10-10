@@ -18,6 +18,14 @@ dsh-network doctor                                    Readiness report (no netwo
 dsh-network server                        [options]   Persistent loopback HTTP server
 ```
 
+The binary is named `dsh-network`, but the **package** is `@naivg/dsh-network`
+(the unscoped npm name belongs to an unrelated project), so a one-off run must
+spell out the scope — a bare `npx dsh-network` would fetch the wrong package:
+
+```bash
+npx @naivg/dsh-network doctor
+```
+
 Engine choices for `search`: `bing`, `duckduckgo`, `baidu`, `github`,
 `searxng`, `brave`. `--engine <id>` pins one; otherwise the chain runs in
 order. See [search-engines.md](search-engines.md).

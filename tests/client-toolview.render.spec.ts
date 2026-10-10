@@ -90,7 +90,7 @@ function createHarness() {
   // eslint-disable-next-line no-new-func
   new Function('window', 'document', 'console', readFileSync(TOOLVIEWS, 'utf8'))(globalThis, globalThis.document, console)
 
-  const entry = materialize(registrations.get('dsh-network'), 'dsh-network')
+  const entry = materialize(registrations.get('@naivg/dsh-network'), '@naivg/dsh-network')
   const views = materialize(registrations.get('client.toolviews.js'), 'client.toolviews.js')
   return { entry, views }
 }

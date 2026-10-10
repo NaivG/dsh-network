@@ -1,5 +1,5 @@
 {
-  "name": "dsh-network",
+  "name": "@naivg/dsh-network",
   "author": "NaivG",
   "version": "1.3.0",
   "description": "dsh-native web suite (CLI + host plugin). Let DeepSeek Harness access the internet seamlessly. Designed with the official CSS style in mind.",
@@ -12,9 +12,13 @@
     "url": "https://github.com/NaivG/dsh-network/issues"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "keywords": [
     "dsh",
     "dsh-plugin",
+    "dsh-network",
     "web-search",
     "web-fetch",
     "http-request",
@@ -53,6 +57,7 @@
   },
   "scripts": {
     "prepare": "node scripts/prepare.mjs",
+    "prepack": "node scripts/prepare.mjs",
     "build": "node ./node_modules/vite/bin/vite.js build --config vite.cli.config.ts",
     "dev": "node ./node_modules/vite/bin/vite.js build --watch --config vite.cli.config.ts",
     "test": "node ./node_modules/vitest/vitest.mjs run",

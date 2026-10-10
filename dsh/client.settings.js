@@ -9,14 +9,14 @@
  *
  * Chunk protocol: this file sits next to dsh/client.js and matches the
  * loader's `client.<name>.js` chunk naming, so the dsh host serves it on
- * demand at /plugins/dsh-network/client.settings.js?rev=… The factory
- * requires the entry ('dsh-network') for the shared surface (i18n labels,
- * config API helpers, STYLES) and must stay SELF-CONTAINED otherwise —
- * chunks cannot synchronously require each other.
+ * demand at /plugins/@naivg/dsh-network/client.settings.js?rev=… The factory
+ * requires the entry ('@naivg/dsh-network') for the shared surface (i18n
+ * labels, config API helpers, STYLES) and must stay SELF-CONTAINED
+ * otherwise — chunks cannot synchronously require each other.
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-network',
+  id: '@naivg/dsh-network',
   chunk: 'client.settings.js',
   factory: function (require) {
     var module = { exports: {} }
@@ -25,7 +25,7 @@ window.__ModuleLoader__.load({
     // Shared surface from the entry module (dsh/client.js). The entry is
     // always materialized before a chunk runs — its apply() is what
     // requests this chunk — so this lookup can never miss.
-    var shared = require('dsh-network')
+    var shared = require('@naivg/dsh-network')
     var labelText = shared.labelText
     var noteFrom = shared.noteFrom
     var fetchConfig = shared.fetchConfig

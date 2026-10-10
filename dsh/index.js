@@ -48,7 +48,12 @@ import { registerConfigRoute, registerHealthRoute, registerSearchRoute } from '.
 // Cordis keeps no copy of the entry config after apply() returns, so
 // `apply()` resolves the row config once into a live object the loopback
 // route mutates; policy fields are read again at every tool call.
-export const name = 'dsh-network'
+//
+// `name` MUST stay the package name: the client module system keys the
+// browser bundle by `package.json` `name` (dsh-client-modules
+// `exactPackageSpecifier` → `nearestPackage` → `graphRow(packageName, …)`),
+// so a rename here without the package rename strands the browser half.
+export const name = '@naivg/dsh-network'
 export const inject = ['tools', 'web', 'systemPrompt']
 
 export function apply(ctx, rawConfig) {

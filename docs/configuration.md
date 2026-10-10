@@ -35,7 +35,7 @@ fresh install:
 ```yaml
 - insert:
     - id: dsh-network
-      name: dsh-network
+      name: '@naivg/dsh-network'
       config:
         enabled: true
         allowlist: []

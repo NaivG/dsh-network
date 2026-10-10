@@ -74,7 +74,7 @@ Unit specs (vitest, no external network unless noted):
   `checkJs` program over all four client files and fails on any unresolved
   name, (b) asserts every chunk declares the loader-approved
   `client.<name>.js` name and re-binds the entry through
-  `require('dsh-network')`, (c) asserts every `STYLES.<key>` a chunk reads
+  `require('@naivg/dsh-network')`, (c) asserts every `STYLES.<key>` a chunk reads
   exists in the entry's table, and (d) materializes the real chunks through
   a faithful chunk-aware loader (registrations keyed `<owner>/<chunk>`,
   owner-relative `require.async`) and renders the settings section, the
@@ -169,35 +169,107 @@ dsh-network/
 Single responsibility: this package owns live web (search + fetch + http +
 document parsing). Image parsing lives in `modlens`.
 
-## Git installs and the `prepare` hook
+## Publishing and the `prepare` / `prepack` hooks
 
-`dist/` is gitignored, and `dsh plugin add github:NaivG/dsh-network` is just
-`pnpm add` with cwd = the profile — so the only thing that can produce the
-CLI bundle during that install is this package's `prepare` script
-(`scripts/prepare.mjs`, which builds and skips cleanly when devDeps are
+`dist/` is gitignored, so it never exists in a fresh clone and never appears in
+a git install — something has to build it at the right moment. The package
+carries two hooks for two routes, both pointing at `scripts/prepare.mjs`:
+
+| Route | What produces `dist/cli.cjs` |
+|---|---|
+| `dsh plugin --profile web add @naivg/dsh-network` (npm) | nothing — `prepack` already baked it into the published tarball |
+| `dsh plugin --profile web add github:NaivG/dsh-network` (git) | the `prepare` script, run by pnpm during install |
+| `dsh plugin --profile web add link:<path>` (link) | you: `pnpm install && pnpm build` |
+
+`scripts/prepare.mjs` skips its build when `dist/cli.cjs` is already newer than
+every CLI input (`src/**`, `vite.cli.config.ts`, `package.json`), because npm
+runs `prepack` AND `prepare` around a single `npm publish`. Set
+`DSH_NETWORK_FORCE_BUILD=1` to bypass that check.
+
+### The npm route
+
+```bash
+pnpm test:all
+npm publish            # prepack builds dist/; publishConfig.access is public
+```
+
+The name is scoped (`@naivg/dsh-network`) because the unscoped `dsh-network` is
+taken by an unrelated project. Nothing else changes for that: the plugin id is
+the package name verbatim (see below), the CLI binary stays `dsh-network`.
+
+### The git route and `allowBuilds`
+
+`dsh plugin add github:NaivG/dsh-network` is just `pnpm add` with cwd = the
+profile — so the only thing that can produce the CLI bundle during that install
+is this package's `prepare` script (which skips cleanly when devDeps are
 absent). Without it pnpm reports success and every later tool call dies with
 `dsh-network CLI bundle is missing` (`assertCliPresent()` in
 `dsh/serverClient.js`).
 
 pnpm 12 gates git-dep build scripts behind `allowBuilds`, and for a
-git-hosted dep the key must be **spec-qualified** — `dsh-network: true` is
-rejected with `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. Either pass the flag:
+git-hosted dep the key must be **spec-qualified** — a bare
+`@naivg/dsh-network: true` is rejected with
+`ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`. Either pass the flag:
 
 ```bash
-dsh plugin --profile web add github:NaivG/dsh-network --allow-build=dsh-network
+dsh plugin --profile web add github:NaivG/dsh-network --allow-build=@naivg/dsh-network
 ```
 
 or put this under `allowBuilds` in the PROFILE's `pnpm-workspace.yaml`
 (`~/.dsh/profiles/web/pnpm-workspace.yaml` — not this repo's, which only
-governs local dev installs of vite/esbuild):
+governs local dev installs of vite/esbuild). The key is `<name>@<spec>` and
+MUST be quoted: `@` cannot start a plain YAML scalar.
 
 ```yaml
 allowBuilds:
-  dsh-network@github:NaivG/dsh-network: true
+  '@naivg/dsh-network@github:NaivG/dsh-network': true
 ```
+
+pnpm prints the exact key it wants when it refuses, so copy from there if a
+future pnpm changes the shape.
 
 For a link install (`dsh plugin --profile web add link:<path>`) run
 `pnpm install && pnpm build` inside the checkout instead.
+
+### Migrating an existing profile after the rename
+
+The rename is not repo-local: a profile that already has the plugin installed
+holds the OLD specifier in three places, and dsh resolves the browser bundle by
+matching the loader row's specifier against the installed manifest's `name`. A
+mismatch returns `undefined` instead of throwing, so the symptom is the
+browser half quietly not mounting — no error anywhere.
+
+```jsonc
+// ~/.dsh/profiles/web/package.json
+"dependencies": { "@naivg/dsh-network": "link:D:/StudioProjects/dsh-network" },
+"dsh": { "profile": { "bundles": [ /* … */ "@naivg/dsh-network" ] } }
+```
+
+```yaml
+# ~/.dsh/profiles/web/pnpm-workspace.yaml — git installs only
+allowBuilds:
+  '@naivg/dsh-network@github:NaivG/dsh-network': true
+```
+
+Then `pnpm install` in the profile (so `node_modules/@naivg/dsh-network` exists)
+and restart dsh. Deleting the old `node_modules/dsh-network` link is optional
+but keeps the two from being confused later.
+
+### The plugin id IS the package name
+
+`dsh-client-modules` keys the browser bundle by the installed manifest's `name`
+field, verbatim and scope included (`exactPackageSpecifier` → `nearestPackage`
+→ `graphRow(packageName, …)`), so `@naivg/dsh-network` is the id in all four
+`__ModuleLoader__.load({ id })` calls, the `require(...)` the chunks use, and
+the `/plugins/@naivg/dsh-network/<chunk>?rev=…` URL. In `cordis.patch.yml` the
+insert row keeps a short free-form `id: dsh-network` (the loader alias, per
+`@deepseek-ai/dsh-web-app`'s own patch) and carries the package name in
+`name: '@naivg/dsh-network'`.
+
+Everything else deliberately keeps the short name — the locale namespace, the
+`settings.section` id, the `searchProvider` / `fetchProvider` ids, the
+`/dsh-network/*` routes, `~/.dsh/dsh-network.json`, `DSH_NETWORK_*`, the CLI
+binary and the sidebar panel id.
 
 ## Misc internals worth knowing while hacking
 
@@ -209,7 +281,7 @@ For a link install (`dsh plugin --profile web add link:<path>`) run
   reinstall) to bump the rev, otherwise browsers keep the immutable-cached
   old copy.
 - **Chunks must be self-contained**: seed words (`react`) and the entry via
-  `require('dsh-network')` only — never another chunk. Every shared symbol
+  `require('@naivg/dsh-network')` only — never another chunk. Every shared symbol
   must be re-bound from the entry by name; a leftover free variable becomes
   a `ReferenceError` inside React's render, not a load error (see
   [architecture.md](architecture.md)).

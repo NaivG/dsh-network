@@ -19,7 +19,7 @@ its tools and engines do, how it is built, and how it works inside.
   result cache, the SSRF transport, the engine registry, the browser half, and
   `cordis.patch.yml`.
 - [Development](development.md) — building, the test suite and smokes, the code
-  layout, and the git-install `prepare` hook.
+  layout, publishing, and the git-install `prepare` hook.
 
 ## Common questions
 

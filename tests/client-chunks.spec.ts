@@ -7,7 +7,7 @@
  * `client.searchpanel.js`), the "网络" settings page stopped rendering
  * entirely. The cause was NOT the loader — the chunk still read the entry's
  * file scope: `ENGINE_LABELS` is declared in `dsh/client.js`, but a chunk is a
- * separate script whose only view of the entry is `require('dsh-network')`.
+ * separate script whose only view of the entry is `require('@naivg/dsh-network')`.
  * A free variable in a chunk is not a syntax error, not a load error, and not
  * a console warning: the chunk registers, materializes, and exports happily,
  * and then `EnginesSection` throws `ReferenceError: ENGINE_LABELS is not
@@ -42,7 +42,7 @@ const nodeRequire = createRequire(import.meta.url)
 const ENTRY_FILE = 'client.js'
 const CHUNK_FILES = ['client.settings.js', 'client.toolviews.js', 'client.searchpanel.js']
 const CLIENT_FILES = [ENTRY_FILE, ...CHUNK_FILES]
-const PACKAGE_ID = 'dsh-network'
+const PACKAGE_ID = '@naivg/dsh-network'
 
 const read = (file: string) => readFileSync(fileURLToPath(new URL(`../dsh/${file}`, import.meta.url)), 'utf8')
 
@@ -96,7 +96,7 @@ describe('browser-half chunk hygiene', () => {
 
     expect(
       unresolved.join('\n'),
-      'a client file reads a name that is not in its own scope — a chunk sees the entry ONLY through require("dsh-network")',
+      'a client file reads a name that is not in its own scope — a chunk sees the entry ONLY through require("@naivg/dsh-network")',
     ).toBe('')
   }, 30_000)
 

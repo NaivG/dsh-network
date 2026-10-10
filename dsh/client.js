@@ -16,7 +16,7 @@
  *
  * The chunks sit next to this file and match the loader's `client.<name>.js`
  * naming, so the dsh host serves each one on demand at
- * /plugins/dsh-network/client.<name>.js?rev=… with no configuration:
+ * /plugins/@naivg/dsh-network/client.<name>.js?rev=… with no configuration:
  *
  *   client.settings.js     "网络" settings section + legacy Plugins-tab card
  *   client.toolviews.js    tool.call.toolview rows + legacy block renderers
@@ -24,8 +24,8 @@
  *
  * Chunk rules (see @deepseek-ai/dsh-client-modules): a chunk must be
  * SELF-CONTAINED — it may require seed words (react) and this entry
- * (require('dsh-network'), always materialized before a chunk runs) but
- * never another chunk. This file exports exactly that shared surface.
+ * (require('@naivg/dsh-network'), always materialized before a chunk runs)
+ * but never another chunk. This file exports exactly that shared surface.
  * Revisions derive from the ENTRY file's mtime/ctime/size, so after
  * editing a chunk, touch dsh/client.js (or reinstall) to bump the rev —
  * otherwise the browser keeps serving the immutable-cached old chunk.
@@ -36,7 +36,7 @@
  */
 
 window.__ModuleLoader__.load({
-  id: 'dsh-network',
+  id: '@naivg/dsh-network',
   factory: function (require) {
     var module = { exports: {} }
     var exports = module.exports
@@ -1166,8 +1166,8 @@ window.__ModuleLoader__.load({
 
     // ────────────────────── module contract ──────────────────────
     exports.apply = apply
-    // Chunk-shared surface: the chunks run require('dsh-network') and read
-    // exactly these members (plus DICTS indirectly through labelText).
+    // Chunk-shared surface: the chunks run require('@naivg/dsh-network') and
+    // read exactly these members (plus DICTS indirectly through labelText).
     exports.labelText = labelText
     exports.isRenderable = isRenderable
     exports.markdownLabels = markdownLabels

@@ -38,7 +38,7 @@ async function runCli(args, signal, config) {
     const msg = attempts.length
       ? attempts.map((a) => `${a.engine || 'engine'}: ${a.error || 'skipped'}`).join('; ')
       : 'engine chain returned no usable result'
-    throw new Error(`dsh-network could not reach the requested source (${msg}). Run \`npx dsh-network doctor\` to check setup.`)
+    throw new Error(`dsh-network could not reach the requested source (${msg}). Run \`npx @naivg/dsh-network doctor\` to check setup.`)
   }
   return entry
 }

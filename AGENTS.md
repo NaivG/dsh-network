@@ -107,9 +107,37 @@ only what you need to **change the code without breaking it**.
   providers to dsh-network and disables `tool-web`, so tool names never
   collide (the tools registry refuses duplicates).
 - **Single responsibility**: this package owns live web (search + fetch +
-  http + document parsing). Image parsing lives in `modlens`.
+  http + document parsing).
 
 ## Invariants — change these carefully
+
+### The package name IS the browser plugin id
+
+The package is published as **`@naivg/dsh-network`**. 
+
+The dsh client module system keys the browser bundle by the installed manifest's `name`
+field, verbatim and scope included (`@deepseek-ai/dsh-client-modules`
+`exactPackageSpecifier` → `nearestPackage` → `graphRow(packageName, …)`). So
+`@naivg/dsh-network` is load-bearing in exactly four places, and they must move
+together:
+
+1. `package.json` `"name"`.
+2. `cordis.patch.yml` — the insert row's **`name:`** is the module specifier
+   (the row's `id:` is a free-form loader alias, the same split
+   `@deepseek-ai/dsh-web-app`'s own patch uses, so `id: dsh-network` stays).
+3. Every `window.__ModuleLoader__.load({ id })` — the entry in
+   `dsh/client.js` and each `dsh/client.<name>.js` chunk — plus the
+   `require('@naivg/dsh-network')` those chunks re-bind the shared surface
+   through. A chunk's registered module id is `<id>/<chunk>`, so a stale entry
+   `id` makes `require.async('./client.*.js')` miss the table.
+4. `dsh/index.js` `export const name`, kept equal to the package name.
+
+Everything else deliberately keeps the SHORT name — the locale namespace, the
+`settings.section` / `tool.call.toolview` slot ids, the `searchProvider` /
+`fetchProvider` ids, the `/dsh-network/*` loopback routes, `~/.dsh/dsh-network.json`,
+the `DSH_NETWORK_*` env vars, the `dsh-network` CLI binary, the `dshn-` CSS
+prefix and the sidebar panel id. They are free-form strings, and renaming them
+would break users' configs and open routes for no gain.
 
 ### Entity decoding is ONE helper, at the CLI boundary
 
@@ -274,10 +302,12 @@ chunks via the loader's OFFICIAL `require.async` protocol:
 `DICTS`, `fetchConfig` / `putConfig` / `fetchHealth`, `labelText`, `STYLES`).
 
 A chunk must be SELF-CONTAINED: seed words (`react`) and the entry via
-`require('dsh-network')` only — never another chunk — and it registers with
-`window.__ModuleLoader__.load({ id, chunk, factory })`. **A chunk has no view
+`require('@naivg/dsh-network')` only — never another chunk — and it registers
+with `window.__ModuleLoader__.load({ id, chunk, factory })`, where `id` is the
+package name verbatim. **A chunk has no view
 of the entry's file scope**, so every shared symbol (`ENGINES`,
-`ENGINE_LABELS`, …) must be re-bound from the `require('dsh-network')` object
+`ENGINE_LABELS`, …) must be re-bound from the `require('@naivg/dsh-network')`
+object
 by name. A leftover free variable is not a syntax error, load error or
 warning: the chunk registers, materializes and exports happily, then throws
 `ReferenceError` inside React's render and takes the whole section down.
@@ -439,8 +469,9 @@ Notes worth carrying:
 - `dist/` is gitignored, so a git install can only build via the `prepare`
   hook — `dsh plugin add github:NaivG/dsh-network` reports success and every
   later tool call dies with `dsh-network CLI bundle is missing` without it.
-  pnpm 12 also needs a **spec-qualified** `allowBuilds` key. See
-  [docs/development.md](docs/development.md#git-installs-and-the-prepare-hook).
+  pnpm 12 also needs a **spec-qualified** `allowBuilds` key. The npm route
+  needs neither: `prepack` bakes `dist/` into the published tarball. See
+  [docs/development.md](docs/development.md#publishing-and-the-prepare--prepack-hooks).
 - Real end-to-end runs cost public-engine budget — ask before bulk. Brave is
   BILLED PER QUERY (its free tier is gone), sits last in the registry and is
   absent from the default chain; `doctor`'s `apiKeys=[brave=no key]` checks it

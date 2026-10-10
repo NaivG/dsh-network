@@ -9,6 +9,7 @@ Let DeepSeek Harness access the internet seamlessly.
 **English** | [简体中文](README.ZH.md)
 
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![npm](https://img.shields.io/npm/v/@naivg/dsh-network?logo=npm&color=cb3837)](https://www.npmjs.com/package/@naivg/dsh-network)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A5_0.1.0.rc2-4D6BFE?logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)
 [![DSH plugin](https://img.shields.io/badge/DSH-plugin-darkblue)](https://github.com/topics/dsh-plugin)
 [![Listed on DSH Market](https://raw.githubusercontent.com/2BingLing/dsh-market/master/assets/readme/badge-listed-en.svg)](https://dsh.market/)
@@ -27,8 +28,6 @@ instead of losing the tail. No API key is needed for the default search chain,
 and every opt-in engine stays opt-in.
 
 Works with `dsh: 0.1.0.rc2` or later.
-
-> **Note:** This plugin is not yet published to npm.
 
 ## Why this plugin
 
@@ -144,8 +143,11 @@ gated by the same toggle.
 ## Install
 
 ```bash
-# from GitHub:
-dsh plugin --profile web add github:NaivG/dsh-network --allow-build=dsh-network
+# from npm:
+dsh plugin --profile web add @naivg/dsh-network
+
+# or from GitHub (builds the CLI bundle during install):
+dsh plugin --profile web add github:NaivG/dsh-network --allow-build=@naivg/dsh-network
 
 # or from a local checkout:
 dsh plugin --profile web add link:<path-to-this-checkout>
@@ -233,11 +235,12 @@ reference, including the loopback routes, is in
 
 ## Troubleshooting
 
-- **`dsh-network doctor`** prints the resolved configuration — engine chain,
-  timeouts, which API keys are configured — without contacting anything. Safe
-  offline, and the first thing to check.
-- **`dsh-network CLI bundle is missing`** — the install-time `prepare` build
-  was skipped. Reinstall with `--allow-build=dsh-network`, or run
+- **`npx @naivg/dsh-network doctor`** prints the resolved configuration — engine
+  chain, timeouts, which API keys are configured — without contacting anything.
+  Safe offline, and the first thing to check.
+- **`dsh-network CLI bundle is missing`** — the CLI build was skipped, which can
+  only happen on a git or link install (the published tarball ships `dist/`).
+  Reinstall the GitHub route with `--allow-build=@naivg/dsh-network`, or run
   `pnpm install && pnpm build` in the checkout (link installs). See
   [development.md](docs/development.md#git-installs-and-the-prepare-hook).
 - **A keyed engine says "no credential"** — paste the key in that engine's
